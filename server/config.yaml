@@ -1,0 +1,26 @@
+# NidsDePoule server configuration
+# Environment variables override these values (NIDS_<SECTION>_<KEY>).
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  env: dev  # dev | prod
+
+queue:
+  backend: asyncio  # asyncio | redis
+  max_size: 10000
+
+storage:
+  backend: file  # file | s3
+  base_dir: data/incoming
+
+limits:
+  max_hits_per_device_per_hour: 600
+  max_waveform_samples: 150
+  max_batch_size: 100
+  active_window_seconds: 120.0  # Window for "active device" tracking
+
+logging:
+  level: info    # debug | info | warning | error
+  format: console  # console | json
+  # file: logs/server.log  # Uncomment to log to file
