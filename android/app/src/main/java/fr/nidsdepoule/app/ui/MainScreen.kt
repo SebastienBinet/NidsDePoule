@@ -1,0 +1,300 @@
+package fr.nidsdepoule.app.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import fr.nidsdepoule.app.R
+import fr.nidsdepoule.app.reporting.HitReporter
+
+/**
+ * Main screen of the NidsDePoule app.
+ *
+ * Shows:
+ * 1. Status bar (car mount, GPS, connection)
+ * 2. Acceleration graph (last 60 seconds)
+ * 3. Data usage stats (KB/min, MB/hour, MB/month)
+ * 4. Reporting mode toggle (real-time vs Wi-Fi batch)
+ * 5. Hit counter
+ */
+@Composable
+fun MainScreen(
+    accelSamples: List<AccelerationBuffer.Sample>,
+    isMounted: Boolean,
+    hasGpsFix: Boolean,
+    isConnected: Boolean,
+    reportingMode: HitReporter.Mode,
+    onModeChanged: (HitReporter.Mode) -> Unit,
+    hitsDetected: Int,
+    hitsSent: Int,
+    hitsPending: Int,
+    kbLastMinute: Float,
+    mbLastHour: Float,
+    mbThisMonth: Float,
+    appVersion: String,
+    devModeEnabled: Boolean,
+    onDevModeTap: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+    ) {
+        // Title
+        Text(
+            text = stringResource(R.string.app_name),
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Status indicators
+        StatusBar(
+            isMounted = isMounted,
+            hasGpsFix = hasGpsFix,
+            isConnected = isConnected,
+            devModeEnabled = devModeEnabled,
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Acceleration graph
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = stringResource(R.string.acceleration_graph),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    LegendDot(color = androidx.compose.ui.graphics.Color(0xFFFF9800), label = stringResource(R.string.vertical))
+                    LegendDot(color = androidx.compose.ui.graphics.Color(0xFF2196F3), label = stringResource(R.string.lateral))
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                AccelerationGraph(
+                    samples = accelSamples,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Reporting mode toggle
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = stringResource(R.string.reporting_mode),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = reportingMode == HitReporter.Mode.REALTIME,
+                        onClick = { onModeChanged(HitReporter.Mode.REALTIME) },
+                        label = { Text(stringResource(R.string.mode_realtime)) },
+                    )
+                    FilterChip(
+                        selected = reportingMode == HitReporter.Mode.WIFI_BATCH,
+                        onClick = { onModeChanged(HitReporter.Mode.WIFI_BATCH) },
+                        label = { Text(stringResource(R.string.mode_wifi_batch)) },
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Data usage (only visible in real-time mode)
+        if (reportingMode == HitReporter.Mode.REALTIME) {
+            DataUsageCard(
+                kbLastMinute = kbLastMinute,
+                mbLastHour = mbLastHour,
+                mbThisMonth = mbThisMonth,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // Hit counter
+        HitCounterCard(
+            hitsDetected = hitsDetected,
+            hitsSent = hitsSent,
+            hitsPending = hitsPending,
+        )
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        // Version number (tap 7 times for dev mode)
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            TextButton(onClick = onDevModeTap) {
+                Text(
+                    text = "v$appVersion",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusBar(
+    isMounted: Boolean,
+    hasGpsFix: Boolean,
+    isConnected: Boolean,
+    devModeEnabled: Boolean,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusChip(
+            label = stringResource(R.string.status_car_mount),
+            active = isMounted,
+        )
+        StatusChip(
+            label = stringResource(R.string.status_gps),
+            active = hasGpsFix,
+        )
+        StatusChip(
+            label = stringResource(R.string.status_connected),
+            active = isConnected,
+        )
+        if (devModeEnabled) {
+            Text(
+                text = "DEV",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .background(
+                        MaterialTheme.colorScheme.errorContainer,
+                        RoundedCornerShape(4.dp),
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusChip(label: String, active: Boolean) {
+    val bgColor = if (active) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val textColor = if (active) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+    }
+
+    Text(
+        text = label,
+        fontSize = 12.sp,
+        color = textColor,
+        modifier = Modifier
+            .background(bgColor, RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun LegendDot(color: androidx.compose.ui.graphics.Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Canvas(modifier = Modifier.size(8.dp)) {
+            drawCircle(color = color)
+        }
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(text = label, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun DataUsageCard(
+    kbLastMinute: Float,
+    mbLastHour: Float,
+    mbThisMonth: Float,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = stringResource(R.string.data_usage),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                DataStat(label = stringResource(R.string.last_minute), value = "%.1f KB".format(kbLastMinute))
+                DataStat(label = stringResource(R.string.last_hour), value = "%.2f MB".format(mbLastHour))
+                DataStat(label = stringResource(R.string.this_month), value = "%.1f MB".format(mbThisMonth))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DataStat(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = value, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(text = label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+    }
+}
+
+@Composable
+private fun HitCounterCard(
+    hitsDetected: Int,
+    hitsSent: Int,
+    hitsPending: Int,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            DataStat(label = stringResource(R.string.hits_detected), value = "$hitsDetected")
+            DataStat(label = stringResource(R.string.hits_sent), value = "$hitsSent")
+            DataStat(label = stringResource(R.string.hits_pending), value = "$hitsPending")
+        }
+    }
+}

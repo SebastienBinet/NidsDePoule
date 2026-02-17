@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NidsDePoule</string>
+
+    <!-- Main screen -->
+    <string name="acceleration_graph">Accélération (dernière minute)</string>
+    <string name="vertical">Haut-Bas</string>
+    <string name="lateral">Gauche-Droite</string>
+    <string name="reporting_mode">Mode de transmission</string>
+    <string name="mode_realtime">Temps réel</string>
+    <string name="mode_wifi_batch">Wi-Fi uniquement</string>
+
+    <!-- Data usage -->
+    <string name="data_usage">Données envoyées</string>
+    <string name="last_minute">Dernière min</string>
+    <string name="last_hour">Dernière heure</string>
+    <string name="this_month">Ce mois</string>
+
+    <!-- Hit counters -->
+    <string name="hits_detected">Détectés</string>
+    <string name="hits_sent">Envoyés</string>
+    <string name="hits_pending">En attente</string>
+
+    <!-- Status indicators -->
+    <string name="status_car_mount">Support auto</string>
+    <string name="status_gps">GPS</string>
+    <string name="status_connected">Connecté</string>
+
+    <!-- Permissions -->
+    <string name="permission_location_rationale">NidsDePoule a besoin de la localisation pour enregistrer les positions des nids de poule.</string>
+
+    <!-- Foreground service -->
+    <string name="notification_channel_name">Détection de nids de poule</string>
+    <string name="notification_title">NidsDePoule est actif</string>
+    <string name="notification_text_active">Détection des nids de poule en cours</string>
+    <string name="notification_text_inactive">En attente du support auto</string>
+</resources>
