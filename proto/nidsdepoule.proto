@@ -1,0 +1,164 @@
+// NidsDePoule — Pothole Detection Protocol
+//
+// This is the single source of truth for the wire format between
+// the Android app and the server. Both Kotlin and Python code
+// are generated from this file.
+//
+// Conventions:
+// - Field numbers 1-15 use 1 byte on the wire (use for frequent fields).
+// - Field numbers 16+ use 2 bytes. Reserve these for less common fields.
+// - Use packed repeated fields for numeric arrays (waveforms).
+// - Integers use milli-units to avoid floating point where possible
+//   (e.g., milli-g for acceleration, microdegrees for GPS coordinates).
+
+syntax = "proto3";
+
+package nidsdepoule;
+
+option java_package = "fr.nidsdepoule.proto";
+option java_multiple_files = true;
+
+// ============================================================
+// Client → Server messages
+// ============================================================
+
+// Envelope for all client-to-server messages.
+message ClientMessage {
+  // Schema version. Increment on breaking changes only.
+  // Non-breaking additions (new fields) don't bump this.
+  uint32 protocol_version = 1;
+
+  // Device identifier (UUID v4, e.g., "550e8400-e29b-41d4-a716-446655440000").
+  string device_id = 2;
+
+  // Android app build number (versionCode).
+  uint32 app_version = 3;
+
+  oneof payload {
+    HitReport hit = 10;
+    HitBatch batch = 11;
+    Heartbeat heartbeat = 12;
+  }
+}
+
+// A single pothole hit report.
+message HitReport {
+  // When the hit occurred (Unix timestamp in milliseconds).
+  int64 timestamp_ms = 1;
+
+  // GPS location at time of hit.
+  Location location = 2;
+
+  // Vehicle speed in meters/second (float, from GPS).
+  float speed_mps = 3;
+
+  // Compass bearing in degrees, 0-360 (from GPS).
+  float bearing_deg = 4;
+
+  // Hit waveform and classification data.
+  HitPattern pattern = 5;
+}
+
+// GPS location, encoded compactly.
+message Location {
+  // Latitude in microdegrees (degrees × 1,000,000).
+  // Example: 45.764043° → 45764043
+  // 1 microdegree ≈ 0.11m at equator. Precision: ~11cm.
+  sfixed32 lat_microdeg = 1;
+
+  // Longitude in microdegrees.
+  sfixed32 lon_microdeg = 2;
+
+  // Horizontal accuracy estimate in meters.
+  uint32 accuracy_m = 3;
+}
+
+// Hit pattern data. This message is designed to evolve.
+// New fields should use field numbers 20+ to keep the common
+// fields compact.
+message HitPattern {
+  // Severity classification:
+  //   0 = unknown/unclassified
+  //   1 = light
+  //   2 = medium
+  //   3 = heavy
+  uint32 severity = 1;
+
+  // Peak vertical (Z-axis) acceleration in milli-g.
+  // Normal gravity = 1000 mg. A pothole hit might peak at 3000-8000 mg.
+  int32 peak_vertical_mg = 2;
+
+  // Peak lateral (X-axis) acceleration in milli-g.
+  int32 peak_lateral_mg = 3;
+
+  // Duration of the impact event in milliseconds.
+  uint32 duration_ms = 4;
+
+  // Sampled vertical waveform around the peak, in milli-g.
+  // Samples at 20ms intervals, centered on peak.
+  // Typically 10-20 values (200-400ms window).
+  repeated int32 waveform_vertical = 5 [packed = true];
+
+  // Sampled lateral waveform around the peak, in milli-g.
+  repeated int32 waveform_lateral = 6 [packed = true];
+
+  // Baseline acceleration magnitude in milli-g.
+  // Rolling average/median during recent normal driving.
+  int32 baseline_mg = 7;
+
+  // Peak-to-baseline ratio × 100 (fixed-point).
+  // Example: 350 means the peak was 3.5× the baseline.
+  uint32 peak_to_baseline_ratio = 8;
+
+  // Reserved for future hit pattern fields (use 20+).
+}
+
+// Batch of hit reports (for Wi-Fi upload mode).
+message HitBatch {
+  repeated HitReport hits = 1;
+}
+
+// Periodic heartbeat for connection health monitoring.
+message Heartbeat {
+  int64 timestamp_ms = 1;
+
+  // Number of hits queued locally, waiting to be uploaded.
+  uint32 pending_hits = 2;
+}
+
+// ============================================================
+// Server → Client messages (future use)
+// ============================================================
+
+// Response to a client message.
+message ServerResponse {
+  // Was the message accepted?
+  bool accepted = 1;
+
+  // Error message if not accepted.
+  string error = 2;
+
+  // Number of hits successfully stored (for batch uploads).
+  uint32 hits_stored = 3;
+}
+
+// ============================================================
+// Server-side storage record
+// ============================================================
+
+// Wraps a HitReport with server metadata for disk storage.
+message ServerHitRecord {
+  // Server receive timestamp (Unix milliseconds).
+  int64 server_timestamp_ms = 1;
+
+  // Client metadata (copied from ClientMessage).
+  uint32 protocol_version = 2;
+  string device_id = 3;
+  uint32 app_version = 4;
+
+  // The original hit report from the client.
+  HitReport hit = 5;
+
+  // Server-assigned unique record ID (monotonically increasing).
+  uint64 record_id = 6;
+}

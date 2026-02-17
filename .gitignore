@@ -32,3 +32,25 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+*.egg
+venv/
+.venv/
+.env
+
+# Server data
+data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated protobuf code
+server/server/proto/*_pb2.py
+server/server/proto/*_pb2_grpc.py
