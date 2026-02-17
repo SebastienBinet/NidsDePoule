@@ -52,11 +52,24 @@ message HitReport {
   // Vehicle speed in meters/second (float, from GPS).
   float speed_mps = 3;
 
-  // Compass bearing in degrees, 0-360 (from GPS).
+  // Compass bearing in degrees, 0-360 (instantaneous GPS bearing at hit time).
   float bearing_deg = 4;
 
   // Hit waveform and classification data.
   HitPattern pattern = 5;
+
+  // Direction of travel BEFORE the hit.
+  // Bearing from the position ~20m before the hit to the hit position.
+  // Used for pothole clustering: two hits are "same pothole" only if
+  // they share similar approach direction. This distinguishes potholes
+  // on opposite lanes or perpendicular streets.
+  float bearing_before_deg = 6;
+
+  // Direction of travel AFTER the hit.
+  // Bearing from the hit position to the position ~20m after the hit.
+  // Together with bearing_before_deg, captures direction changes at
+  // turns and roundabouts.
+  float bearing_after_deg = 7;
 }
 
 // GPS location, encoded compactly.
@@ -95,8 +108,10 @@ message HitPattern {
   uint32 duration_ms = 4;
 
   // Sampled vertical waveform around the peak, in milli-g.
-  // Samples at 20ms intervals, centered on peak.
-  // Typically 10-20 values (200-400ms window).
+  // Samples at 20ms intervals (50 Hz), centered on peak.
+  // Initial version: 150 samples (~3 second window) for data collection.
+  // Will likely reduce to ~15 samples once real data is analyzed.
+  // The variable-length encoding means no schema change is needed.
   repeated int32 waveform_vertical = 5 [packed = true];
 
   // Sampled lateral waveform around the peak, in milli-g.

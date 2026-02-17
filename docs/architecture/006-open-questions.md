@@ -1,63 +1,91 @@
-# ADR-006: Open Questions and Future Decisions
+# ADR-006: Open Questions — Resolved
 
-**Status:** Living document
+**Status:** Resolved
 **Date:** 2025-02-17
+**Updated:** 2025-02-17
+**Decision makers:** Sébastien Binet, Claude (AI assistant)
 
-## Questions for Sébastien
+## Resolved Questions
 
 ### Q1: Accelerometer Sampling Rate
-The default plan is 50 Hz (50 readings/second). Higher rates (100-200 Hz)
-capture faster impacts but use more battery. Is 50 Hz acceptable, or do you
-have a preference?
+**Answer:** 50 Hz is sufficient.
 
 ### Q2: Hit Waveform Detail
-The current design captures ~15 samples (300ms window) around the peak of
-each hit. This gives a rough shape of the impact. Do you want more detail
-(50+ samples, 1 second window) at the cost of larger messages, or is the
-rough shape sufficient?
+**Answer:** Start with 150 samples (~3 seconds at 50 Hz) for initial data
+collection and analysis. Will likely reduce to ~15 samples once real data
+reveals what's actually needed. The protobuf schema supports variable-length
+waveform arrays, so this change requires no schema modification.
+
+**Impact on message size:**
+- 150 samples × 2 axes × ~2 bytes/sample (packed varint) = ~600 bytes waveform
+- Total hit message with envelope: ~700 bytes binary (vs ~90 bytes with 15 samples)
+- At 10 hits/minute real-time: ~420 KB/hour. Still very manageable.
 
 ### Q3: GPS Accuracy Requirements
-GPS on phones is typically 3-10 meters accurate. This means pothole positions
-will have ~5m uncertainty. For clustering hits into potholes, this is workable
-but not precise. Is this acceptable, or do you want to explore ways to improve
-accuracy (e.g., using Google's Fused Location Provider for better estimates)?
+**Answer:** 5m accuracy is fine for v1. See ADR-009 for a detailed analysis of
+precision improvement options if needed later. Key alternatives:
+1. **Snap-to-road** (cheapest, most practical): post-process GPS points onto
+   known road geometry using OpenStreetMap.
+2. **Crowdsourced averaging**: average GPS readings from multiple users at the
+   same pothole to improve position estimate.
+3. **IMU dead reckoning**: use accelerometer/gyroscope to interpolate between
+   GPS fixes.
 
 ### Q4: Multiple Vehicles / Phones
-Could a user have multiple phones (e.g., a tablet and a phone both in the
-car)? Should we handle deduplication of hits from the same vehicle?
+**Answer:** No deduplication needed. The assumption is that only the driver's
+phone in a car mount is reporting. A phone held in hand will produce a
+different hit pattern and won't be in "car mount detected" mode. The car mount
+detection module acts as a natural filter.
 
 ### Q5: Privacy & Data Retention
-How long should raw hit data be stored? Options:
-- Keep forever (disk is cheap, ~600 KB/hour at peak).
-- Delete raw data after aggregation (e.g., after potholes are identified).
-- Let users request deletion of their data.
+**Answer:** Two-part strategy:
+- **On phone:** Delete hit data immediately after successful upload to server.
+  No local accumulation beyond the Wi-Fi batch buffer.
+- **On server:** Keep all data. Provide developer tools to:
+  - Remove the oldest 90% of data (by date).
+  - Remove the weakest 90% of hits (by severity/peak acceleration).
+  - These are developer/admin operations, not automatic.
 
 ### Q6: City Admin Authentication
-When city admin features are added (Phase 4), how should city employees
-authenticate? Options:
-- Shared password per city (simple but insecure).
-- Individual accounts with city role.
-- OAuth with city's existing identity provider.
+**Answer:** City name + employee number combination. Simple and practical.
+Implementation details:
+- City name from a predefined list (city registers with the platform).
+- Employee number as a personal identifier.
+- Password or PIN for authentication.
+- No need for OAuth or external identity providers.
 
 ### Q7: Pothole Identity
-When multiple users hit the same pothole, how should we define "same pothole"?
-Options:
-- Geographic proximity (e.g., hits within 10 meters of each other).
-- Geographic proximity + road segment matching (using OpenStreetMap data).
-- Manual review in admin dashboard.
+**Answer:** Proximity + direction of travel. Specifically:
+- Geographic proximity (e.g., hits within 10 meters).
+- **AND** similar direction of travel.
+- To handle direction changes (turns, roundabouts), capture TWO directions:
+  1. **Direction before hit:** bearing from position 20m before the hit to the
+     hit position.
+  2. **Direction after hit:** bearing from the hit position to the position 20m
+     after the hit.
+- Two hits are at the "same pothole" if they are geographically close AND their
+  direction vectors are compatible (e.g., within 30° of each other).
+- This prevents clustering hits from opposite lanes or perpendicular streets.
+
+**Impact on protobuf schema:** Added `bearing_before_deg` and
+`bearing_after_deg` fields to `HitReport`.
 
 ### Q8: Internationalization
-The app will be used in France initially (based on the French project name).
-Should the UI be in French only, or bilingual (French + English)?
+**Answer:** Multilingual from the start. French and English for first iteration.
+Implementation: Android string resources (`strings.xml` in `values/` and
+`values-fr/`). Server error messages should also be locale-aware.
 
 ### Q9: Google Maps API Billing
-Google Maps requires a billing account even for free-tier usage. Are you
-comfortable setting up a Google Cloud billing account? The free tier ($200/month
-credit) is more than sufficient for this project's scale.
+**Answer:** Yes, willing to set up billing. But concerned about cost explosion
+at scale. See ADR-008 for a detailed cost analysis. **Key finding: Google Maps
+becomes extremely expensive at scale ($2M+/month at 10M users). The strategy
+is to start with Google Maps and switch to OpenStreetMap + Leaflet/MapLibre if
+the user base grows beyond ~50,000 users.**
 
 ### Q10: Android App Name and Package
-- App name: "NidsDePoule" or a more user-friendly name?
-- Package name suggestion: `fr.nidsdepoule.app` or another domain?
+**Answer:** Confirmed.
+- App name: **NidsDePoule**
+- Package name: `fr.nidsdepoule.app`
 
 ## Decisions Deferred
 
@@ -65,7 +93,5 @@ credit) is more than sufficient for this project's scale.
 |---------------------------|---------------------|-----------------------|
 | Web dashboard framework   | Phase 3 start       | Complexity of UI needs |
 | Google Sign-In details    | Phase 4 start       | Friend feature design  |
-| City admin portal design  | Phase 4 start       | City partnership needs |
-| Machine learning for hits | After real data collected | Data quality/quantity |
-| Pothole clustering algo   | Phase 3             | Real-world GPS accuracy |
-| App distribution method   | When >10 testers    | Tester feedback        |
+| ML-based hit classification | After real data collected | Data quality/quantity |
+| Reduce waveform to 15 samples | After real data analysis | What patterns matter |

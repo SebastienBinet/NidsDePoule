@@ -36,10 +36,18 @@ message HitReport {
 
   // Vehicle motion at time of hit
   float speed_mps = 3;      // Speed in meters/second
-  float bearing_deg = 4;     // Compass bearing in degrees (0-360)
+  float bearing_deg = 4;     // Instantaneous compass bearing (0-360)
 
   // Hit pattern data
   HitPattern pattern = 5;
+
+  // Direction before hit: bearing from ~20m before to hit position.
+  // Used with bearing_after_deg for pothole clustering (same pothole
+  // = same location + same approach direction).
+  float bearing_before_deg = 6;
+
+  // Direction after hit: bearing from hit position to ~20m after.
+  float bearing_after_deg = 7;
 }
 
 // GPS location
@@ -69,8 +77,8 @@ message HitPattern {
   uint32 duration_ms = 4;
 
   // Sampled waveform around the peak (vertical axis, in milli-g)
-  // Samples taken at 20ms intervals, centered on peak.
-  // Typically 10-20 samples (200-400ms window).
+  // Samples taken at 20ms intervals (50 Hz), centered on peak.
+  // Initial: 150 samples (~3s window). Will reduce to ~15 later.
   repeated int32 waveform_vertical = 5 [packed = true];
 
   // Sampled waveform around the peak (lateral axis, in milli-g)
@@ -101,19 +109,23 @@ message Heartbeat {
 
 ### Size Estimate
 
-A typical HitReport with 15 waveform samples:
+**Initial version (150 waveform samples per axis):**
 - Timestamp: 5 bytes (varint)
 - Location: 10 bytes (2 × sfixed32 + varint accuracy)
-- Speed + bearing: 8 bytes (2 × float)
-- Pattern: ~45 bytes (severity + peaks + duration + 15 samples packed + baseline + ratio)
-- **Total HitReport: ~70 bytes**
+- Speed + 3 bearings: 16 bytes (4 × float)
+- Pattern: ~630 bytes (severity + peaks + duration + 150×2 samples + baseline + ratio)
+- **Total HitReport: ~660 bytes**
+- With ClientMessage envelope: **~700 bytes binary, ~2 KB text**
+- At 10 hits/minute: ~420 KB/hour real-time
 
-With ClientMessage envelope (version + device_id + app_version):
-- ~90 bytes total per hit in binary mode
-- ~500 bytes in text format (ASCII mode)
+**Future version (15 waveform samples per axis):**
+- Pattern shrinks to ~45 bytes
+- **Total HitReport: ~80 bytes**
+- With envelope: **~100 bytes binary, ~500 bytes text**
+- At 10 hits/minute: ~60 KB/hour real-time
 
-This is very efficient. At 10 hits per minute (heavy pothole road), real-time
-mode uses ~54 KB/hour.
+The variable-length waveform fields mean no schema change is needed to switch
+between 150 and 15 samples. See ADR-008 for scaling impact.
 
 ## Storage Format on Server
 
