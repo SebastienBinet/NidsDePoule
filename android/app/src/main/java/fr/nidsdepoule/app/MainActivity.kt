@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
                         mbLastHour = viewModel.mbLastHour,
                         mbThisMonth = viewModel.mbThisMonth,
                         appVersion = viewModel.appVersionName,
+                        buildTime = BuildConfig.BUILD_TIME,
                         devModeEnabled = viewModel.devModeEnabled,
                         onDevModeTap = { viewModel.onDevModeTap() },
                     )

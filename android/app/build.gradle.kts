@@ -18,6 +18,10 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        val buildTime = java.time.LocalDateTime.now()
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
     }
 
     buildTypes {
