@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Warning triangle for pothole detection -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,28 L76,72 L32,72 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2" />
+    <path
+        android:fillColor="#FF6200EE"
+        android:pathData="M52,48 L56,48 L55,60 L53,60 Z" />
+    <path
+        android:fillColor="#FF6200EE"
+        android:pathData="M54,63 m-2.5,0 a2.5,2.5 0,1 1,5 0 a2.5,2.5 0,1 1,-5 0" />
+</vector>
