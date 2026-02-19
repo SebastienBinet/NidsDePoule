@@ -1,3 +1,6 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -19,7 +22,7 @@ android {
             useSupportLibrary = true
         }
 
-        val buildTime = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date())
+        val buildTime = SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())
         buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
     }
 
