@@ -25,6 +25,7 @@ import fr.nidsdepoule.app.reporting.HitReporter
  * 4. Reporting mode toggle (real-time vs Wi-Fi batch)
  * 5. Hit counter
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     accelSamples: List<AccelerationBuffer.Sample>,
