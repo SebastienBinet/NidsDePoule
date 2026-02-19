@@ -13,6 +13,7 @@ class AccelerationBuffer(private val maxSize: Int = 3000) {
         val timestampMs: Long,
         val verticalMg: Int,
         val lateralMg: Int,
+        val isHit: Boolean = false,
     )
 
     private val samples = ArrayDeque<Sample>(maxSize)
@@ -40,6 +41,13 @@ class AccelerationBuffer(private val maxSize: Int = 3000) {
             i++
         }
         return result
+    }
+
+    fun markLastAsHit() {
+        if (samples.isNotEmpty()) {
+            val last = samples.removeLast()
+            samples.addLast(last.copy(isHit = true))
+        }
     }
 
     fun clear() {

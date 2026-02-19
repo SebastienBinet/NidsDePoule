@@ -120,6 +120,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (event != null) {
                     hitsDetected++
+                    accelBuffer.markLastAsHit()
                     onHitDetected(event)
                 }
             }

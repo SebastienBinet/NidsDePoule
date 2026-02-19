@@ -90,6 +90,15 @@ fun AccelerationGraph(
             height = height,
             padding = padding,
         )
+
+        // Draw hit markers (red circles + vertical lines)
+        drawHitMarkers(
+            samples = samples,
+            maxY = maxY,
+            width = width,
+            height = height,
+            padding = padding,
+        )
     }
 }
 
@@ -126,6 +135,43 @@ private fun DrawScope.drawTrace(
         color = color,
         style = Stroke(width = 2f),
     )
+}
+
+private fun DrawScope.drawHitMarkers(
+    samples: List<AccelerationBuffer.Sample>,
+    maxY: Float,
+    width: Float,
+    height: Float,
+    padding: Float,
+) {
+    if (samples.size < 2) return
+
+    val usableWidth = width - 2 * padding
+    val usableHeight = height - 2 * padding
+    val xStep = usableWidth / (samples.size - 1).toFloat()
+    val hitColor = Color(0xFFFF1744)  // bright red
+
+    for ((i, sample) in samples.withIndex()) {
+        if (!sample.isHit) continue
+
+        val x = padding + i * xStep
+        val verticalY = height - padding - (abs(sample.verticalMg).toFloat() / maxY) * usableHeight
+
+        // Translucent vertical line spanning the full graph height
+        drawLine(
+            color = hitColor.copy(alpha = 0.25f),
+            start = Offset(x, padding),
+            end = Offset(x, height - padding),
+            strokeWidth = 3f,
+        )
+
+        // Red circle at the vertical acceleration value
+        drawCircle(
+            color = hitColor,
+            radius = 6f,
+            center = Offset(x, verticalY),
+        )
+    }
 }
 
 private fun DrawScope.drawDashedLine(
