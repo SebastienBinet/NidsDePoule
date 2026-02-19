@@ -19,8 +19,7 @@ android {
             useSupportLibrary = true
         }
 
-        val buildTime = java.time.LocalDateTime.now()
-            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        val buildTime = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date())
         buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
     }
 
