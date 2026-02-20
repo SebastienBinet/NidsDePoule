@@ -62,7 +62,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
         private set
 
-    fun setServerUrl(url: String) {
+    fun updateServerUrl(url: String) {
         serverUrl = url
         hitReporter.serverUrl = url
         prefs.edit().putString("server_url", url).apply()

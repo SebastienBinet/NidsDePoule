@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
                         devModeEnabled = viewModel.devModeEnabled,
                         onDevModeTap = { viewModel.onDevModeTap() },
                         serverUrl = viewModel.serverUrl,
-                        onServerUrlChanged = { viewModel.setServerUrl(it) },
+                        onServerUrlChanged = { viewModel.updateServerUrl(it) },
                     )
                 }
             }
