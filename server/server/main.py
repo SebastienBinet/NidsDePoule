@@ -7,6 +7,7 @@ It wires together the core, queue, storage, and API layers.
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 import structlog
@@ -59,7 +60,7 @@ def _setup_logging(config: AppConfig) -> None:
     structlog.configure(
         processors=processors,
         wrapper_class=structlog.make_filtering_bound_logger(
-            structlog.get_level_from_name(config.logging.level),
+            logging.getLevelName(config.logging.level.upper()),
         ),
     )
 
