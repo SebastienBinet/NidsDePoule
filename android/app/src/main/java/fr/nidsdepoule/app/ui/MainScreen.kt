@@ -44,6 +44,8 @@ fun MainScreen(
     buildTime: String,
     devModeEnabled: Boolean,
     onDevModeTap: () -> Unit,
+    serverUrl: String = "",
+    onServerUrlChanged: (String) -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -149,6 +151,19 @@ fun MainScreen(
             hitsSent = hitsSent,
             hitsPending = hitsPending,
         )
+
+        // Server URL (only visible in dev mode)
+        if (devModeEnabled) {
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedTextField(
+                value = serverUrl,
+                onValueChange = onServerUrlChanged,
+                label = { Text("Server URL") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
+            )
+        }
 
         Spacer(modifier = Modifier.weight(1f))
 

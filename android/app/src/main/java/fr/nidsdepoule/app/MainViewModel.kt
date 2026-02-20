@@ -56,6 +56,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val accelerometer: AccelerometerSource = AndroidAccelerometer(application)
     private val locationSource: LocationSource = AndroidLocationSource(application)
 
+    // --- Server URL (persisted, editable in dev mode) ---
+    var serverUrl by mutableStateOf(
+        prefs.getString("server_url", null) ?: BuildConfig.DEFAULT_SERVER_URL
+    )
+        private set
+
+    fun setServerUrl(url: String) {
+        serverUrl = url
+        hitReporter.serverUrl = url
+        prefs.edit().putString("server_url", url).apply()
+    }
+
     // --- Reporting ---
     private val httpClient = OkHttpClientAdapter()
     val hitReporter = HitReporter(
@@ -63,7 +75,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dataUsageTracker = dataUsageTracker,
         deviceId = deviceId,
         appVersion = appVersion,
-        serverUrl = BuildConfig.DEFAULT_SERVER_URL,
+        serverUrl = serverUrl,
     )
 
     // --- Location tracking for bearing before/after ---

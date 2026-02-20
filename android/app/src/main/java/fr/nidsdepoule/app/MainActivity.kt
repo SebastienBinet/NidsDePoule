@@ -55,6 +55,8 @@ class MainActivity : ComponentActivity() {
                         buildTime = BuildConfig.BUILD_TIME,
                         devModeEnabled = viewModel.devModeEnabled,
                         onDevModeTap = { viewModel.onDevModeTap() },
+                        serverUrl = viewModel.serverUrl,
+                        onServerUrlChanged = { viewModel.setServerUrl(it) },
                     )
                 }
             }

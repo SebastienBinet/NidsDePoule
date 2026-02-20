@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: nidsdepoule
+    runtime: python
+    plan: free
+    rootDir: server
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: NIDS_SERVER_ENV
+        value: prod
+      - key: NIDS_LOG_FORMAT
+        value: json
+    healthCheckPath: /api/v1/health
