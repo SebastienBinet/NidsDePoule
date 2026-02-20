@@ -119,3 +119,28 @@ class FileHitStorage:
         """Store a batch of hit records."""
         for record in records:
             await self.store(record)
+
+    def read_all_hits(self) -> list[dict]:
+        """Read all hit records from .binpb files.
+
+        Returns a list of raw dicts (the JSON that was length-prefixed).
+        """
+        hits: list[dict] = []
+        for binpb_path in self._base_dir.rglob("hits.binpb"):
+            try:
+                data = binpb_path.read_bytes()
+                offset = 0
+                while offset + 4 <= len(data):
+                    length = struct.unpack("<I", data[offset:offset + 4])[0]
+                    offset += 4
+                    if offset + length > len(data):
+                        break
+                    payload = data[offset:offset + length]
+                    offset += length
+                    try:
+                        hits.append(json.loads(payload))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
+            except OSError:
+                log.warning("read_failed", path=str(binpb_path))
+        return hits

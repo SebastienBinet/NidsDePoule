@@ -29,6 +29,7 @@ def _init_server(tmp_path):
     main_module._config = config
     main_module._stats = stats
     main_module._processor = processor
+    main_module._storage = storage
 
     yield
 
@@ -36,6 +37,7 @@ def _init_server(tmp_path):
     main_module._config = None
     main_module._stats = None
     main_module._processor = None
+    main_module._storage = None
 
 
 @pytest.fixture

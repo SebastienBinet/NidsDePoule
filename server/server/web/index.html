@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NidsDePoule — Pothole Map</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+
+  #panel {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    padding: 14px 18px;
+    z-index: 1;
+    max-width: 320px;
+  }
+  #panel h1 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  #panel .stats {
+    font-size: 13px;
+    color: #555;
+    line-height: 1.5;
+  }
+  #panel .stats span { font-weight: 600; color: #111; }
+  #refresh-btn {
+    margin-top: 8px;
+    padding: 5px 12px;
+    font-size: 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #f8f8f8;
+    cursor: pointer;
+  }
+  #refresh-btn:hover { background: #eee; }
+
+  .legend {
+    position: absolute;
+    bottom: 30px;
+    left: 12px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    padding: 10px 14px;
+    z-index: 1;
+    font-size: 12px;
+  }
+  .legend-title { font-weight: 600; margin-bottom: 6px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 1.5px solid rgba(0,0,0,0.3);
+    flex-shrink: 0;
+  }
+
+  .maplibregl-popup-content {
+    padding: 12px 16px !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    line-height: 1.6;
+    border-radius: 8px !important;
+  }
+  .popup-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .popup-row { display: flex; justify-content: space-between; gap: 16px; }
+  .popup-label { color: #666; }
+  .popup-value { font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="panel">
+  <h1>NidsDePoule</h1>
+  <div class="stats">
+    Potholes: <span id="cluster-count">-</span><br>
+    Total hits: <span id="hit-count">-</span><br>
+    Devices: <span id="device-count">-</span>
+  </div>
+  <button id="refresh-btn" onclick="loadPotholes()">Refresh</button>
+</div>
+
+<div class="legend">
+  <div class="legend-title">Severity</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#facc15"></div> Light</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div> Medium</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div> Heavy</div>
+</div>
+
+<script>
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      osm: {
+        type: 'raster',
+        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      },
+    },
+    layers: [{
+      id: 'osm-tiles',
+      type: 'raster',
+      source: 'osm',
+      minzoom: 0,
+      maxzoom: 19,
+    }],
+  },
+  center: [4.835, 45.764],  // Lyon default
+  zoom: 13,
+});
+
+map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+function severityColor(avg) {
+  if (avg >= 2.5) return '#ef4444';
+  if (avg >= 1.5) return '#f97316';
+  return '#facc15';
+}
+
+function circleRadius(hitCount) {
+  return Math.min(6 + Math.sqrt(hitCount) * 3, 24);
+}
+
+function formatDate(ms) {
+  if (!ms) return '-';
+  return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+let currentPopup = null;
+
+function loadPotholes() {
+  fetch('/api/v1/potholes')
+    .then(r => r.json())
+    .then(geojson => {
+      const features = geojson.features || [];
+
+      // Update stats panel.
+      document.getElementById('cluster-count').textContent = features.length;
+      const totalHits = features.reduce((s, f) => s + f.properties.hit_count, 0);
+      document.getElementById('hit-count').textContent = totalHits;
+      const allDevices = new Set();
+      features.forEach(f => { for (let i = 0; i < f.properties.devices; i++) allDevices.add(f.geometry.coordinates.join(',') + i); });
+      document.getElementById('device-count').textContent = features.reduce((s, f) => s + f.properties.devices, 0);
+
+      // Remove existing source/layers if present (for refresh).
+      if (map.getLayer('potholes-circles')) map.removeLayer('potholes-circles');
+      if (map.getLayer('potholes-labels')) map.removeLayer('potholes-labels');
+      if (map.getSource('potholes')) map.removeSource('potholes');
+
+      // Add GeoJSON source with pre-computed colors and radii.
+      features.forEach(f => {
+        f.properties._color = severityColor(f.properties.severity_avg);
+        f.properties._radius = circleRadius(f.properties.hit_count);
+      });
+
+      map.addSource('potholes', { type: 'geojson', data: geojson });
+
+      map.addLayer({
+        id: 'potholes-circles',
+        type: 'circle',
+        source: 'potholes',
+        paint: {
+          'circle-radius': ['get', '_radius'],
+          'circle-color': ['get', '_color'],
+          'circle-opacity': 0.85,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': 'rgba(0,0,0,0.3)',
+        },
+      });
+
+      map.addLayer({
+        id: 'potholes-labels',
+        type: 'symbol',
+        source: 'potholes',
+        layout: {
+          'text-field': ['to-string', ['get', 'hit_count']],
+          'text-size': 11,
+          'text-font': ['Open Sans Bold'],
+          'text-allow-overlap': true,
+        },
+        paint: {
+          'text-color': '#fff',
+          'text-halo-color': 'rgba(0,0,0,0.5)',
+          'text-halo-width': 1,
+        },
+        minzoom: 13,
+      });
+
+      // Fit map to data if we have features.
+      if (features.length > 0) {
+        const bounds = new maplibregl.LngLatBounds();
+        features.forEach(f => bounds.extend(f.geometry.coordinates));
+        map.fitBounds(bounds, { padding: 60, maxZoom: 16 });
+      }
+    })
+    .catch(err => console.error('Failed to load potholes:', err));
+}
+
+// Click handler for popups.
+map.on('click', 'potholes-circles', e => {
+  if (currentPopup) currentPopup.remove();
+  const f = e.features[0];
+  const p = f.properties;
+  const coords = f.geometry.coordinates.slice();
+
+  const severityLabel = p.severity_max >= 3 ? 'Heavy' : p.severity_max >= 2 ? 'Medium' : 'Light';
+
+  const html = `
+    <div class="popup-title">Pothole Cluster</div>
+    <div class="popup-row"><span class="popup-label">Hits</span><span class="popup-value">${p.hit_count}</span></div>
+    <div class="popup-row"><span class="popup-label">Worst severity</span><span class="popup-value">${severityLabel} (${p.severity_max})</span></div>
+    <div class="popup-row"><span class="popup-label">Avg severity</span><span class="popup-value">${Number(p.severity_avg).toFixed(1)}</span></div>
+    <div class="popup-row"><span class="popup-label">Peak accel</span><span class="popup-value">${p.peak_mg_max} mg</span></div>
+    <div class="popup-row"><span class="popup-label">Devices</span><span class="popup-value">${p.devices}</span></div>
+    <div class="popup-row"><span class="popup-label">Confidence</span><span class="popup-value">${(Number(p.confidence) * 100).toFixed(0)}%</span></div>
+    <div class="popup-row"><span class="popup-label">First seen</span><span class="popup-value">${formatDate(p.first_seen_ms)}</span></div>
+    <div class="popup-row"><span class="popup-label">Last seen</span><span class="popup-value">${formatDate(p.last_seen_ms)}</span></div>
+  `;
+
+  currentPopup = new maplibregl.Popup({ offset: 12 })
+    .setLngLat(coords)
+    .setHTML(html)
+    .addTo(map);
+});
+
+map.on('mouseenter', 'potholes-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
+map.on('mouseleave', 'potholes-circles', () => { map.getCanvas().style.cursor = ''; });
+
+map.on('load', loadPotholes);
+</script>
+</body>
+</html>
