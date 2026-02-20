@@ -41,8 +41,11 @@ fun MainScreen(
     mbLastHour: Float,
     mbThisMonth: Float,
     appVersion: String,
+    buildTime: String,
     devModeEnabled: Boolean,
     onDevModeTap: () -> Unit,
+    serverUrl: String = "",
+    onServerUrlChanged: (String) -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -149,6 +152,19 @@ fun MainScreen(
             hitsPending = hitsPending,
         )
 
+        // Server URL (only visible in dev mode)
+        if (devModeEnabled) {
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedTextField(
+                value = serverUrl,
+                onValueChange = onServerUrlChanged,
+                label = { Text("Server URL") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
+            )
+        }
+
         Spacer(modifier = Modifier.weight(1f))
 
         // Version number (tap 7 times for dev mode)
@@ -158,7 +174,7 @@ fun MainScreen(
         ) {
             TextButton(onClick = onDevModeTap) {
                 Text(
-                    text = "v$appVersion",
+                    text = "v$appVersion - $buildTime",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                 )
