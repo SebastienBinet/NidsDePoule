@@ -8,8 +8,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.R
@@ -44,6 +46,10 @@ fun MainScreen(
     buildTime: String,
     devModeEnabled: Boolean,
     onDevModeTap: () -> Unit,
+    onVisualSmall: () -> Unit = {},
+    onVisualBig: () -> Unit = {},
+    onImpactSmall: () -> Unit = {},
+    onImpactBig: () -> Unit = {},
     serverUrl: String = "",
     onServerUrlChanged: (String) -> Unit = {},
 ) {
@@ -68,6 +74,16 @@ fun MainScreen(
             hasGpsFix = hasGpsFix,
             isConnected = isConnected,
             devModeEnabled = devModeEnabled,
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Manual report buttons — large targets for in-car use
+        ReportButtonsPanel(
+            onVisualSmall = onVisualSmall,
+            onVisualBig = onVisualBig,
+            onImpactSmall = onImpactSmall,
+            onImpactBig = onImpactBig,
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -313,6 +329,141 @@ private fun HitCounterCard(
             DataStat(label = stringResource(R.string.hits_detected), value = "$hitsDetected")
             DataStat(label = stringResource(R.string.hits_sent), value = "$hitsSent")
             DataStat(label = stringResource(R.string.hits_pending), value = "$hitsPending")
+        }
+    }
+}
+
+/**
+ * Four big buttons for manual pothole reporting.
+ *
+ * Layout:  [  Hiii !  ] [ HIIIIIII !!! ]
+ *          [  Ouch !  ] [  AYOYE !     ]
+ *
+ * Top row  = "I see a pothole" (visual, no accelerometer data).
+ * Bottom row = "I just hit a pothole" (captures last 5 s of accel data).
+ *
+ * Buttons are intentionally large so the driver can tap without looking.
+ */
+@Composable
+private fun ReportButtonsPanel(
+    onVisualSmall: () -> Unit,
+    onVisualBig: () -> Unit,
+    onImpactSmall: () -> Unit,
+    onImpactBig: () -> Unit,
+) {
+    // Colors: yellow tones for visual (seeing), red/orange tones for impact (hitting)
+    val visualSmallColor = ButtonDefaults.buttonColors(
+        containerColor = Color(0xFFFDD835),  // yellow
+        contentColor = Color(0xFF212121),
+    )
+    val visualBigColor = ButtonDefaults.buttonColors(
+        containerColor = Color(0xFFFF8F00),  // amber
+        contentColor = Color.White,
+    )
+    val impactSmallColor = ButtonDefaults.buttonColors(
+        containerColor = Color(0xFFFF7043),  // deep orange
+        contentColor = Color.White,
+    )
+    val impactBigColor = ButtonDefaults.buttonColors(
+        containerColor = Color(0xFFD32F2F),  // red
+        contentColor = Color.White,
+    )
+
+    val btnHeight = 56.dp
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Top row: visual reports ("I see it")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Button(
+                onClick = onVisualSmall,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(btnHeight),
+                colors = visualSmallColor,
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stringResource(R.string.btn_visual_small),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = stringResource(R.string.btn_visual_small_hint),
+                        fontSize = 9.sp,
+                    )
+                }
+            }
+            Button(
+                onClick = onVisualBig,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(btnHeight),
+                colors = visualBigColor,
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stringResource(R.string.btn_visual_big),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    Text(
+                        text = stringResource(R.string.btn_visual_big_hint),
+                        fontSize = 9.sp,
+                    )
+                }
+            }
+        }
+
+        // Bottom row: impact reports ("I hit it")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Button(
+                onClick = onImpactSmall,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(btnHeight),
+                colors = impactSmallColor,
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stringResource(R.string.btn_impact_small),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = stringResource(R.string.btn_impact_small_hint),
+                        fontSize = 9.sp,
+                    )
+                }
+            }
+            Button(
+                onClick = onImpactBig,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(btnHeight),
+                colors = impactBigColor,
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stringResource(R.string.btn_impact_big),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    Text(
+                        text = stringResource(R.string.btn_impact_big_hint),
+                        fontSize = 9.sp,
+                    )
+                }
+            }
         }
     }
 }

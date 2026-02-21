@@ -1,6 +1,7 @@
 package fr.nidsdepoule.app.reporting
 
 import fr.nidsdepoule.app.detection.HitEvent
+import fr.nidsdepoule.app.detection.ReportSource
 import fr.nidsdepoule.app.sensor.LocationReading
 
 /**
@@ -27,6 +28,7 @@ data class HitReportData(
             "protocol_version" to protocolVersion,
             "device_id" to deviceId,
             "app_version" to appVersion,
+            "source" to hit.source.wire,
             "hit" to mapOf(
                 "timestamp_ms" to timestampMs,
                 "location" to mapOf(

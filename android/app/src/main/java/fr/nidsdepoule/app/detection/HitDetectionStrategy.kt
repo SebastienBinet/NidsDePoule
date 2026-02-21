@@ -1,5 +1,27 @@
 package fr.nidsdepoule.app.detection
 
+/**
+ * How the pothole report was generated.
+ *
+ * The string values are sent to the server in the JSON "source" field.
+ */
+enum class ReportSource(val wire: String) {
+    /** Automatic accelerometer threshold detection. */
+    AUTO("auto"),
+
+    /** User visually spotted a small/medium pothole ("Hiii !"). */
+    VISUAL_SMALL("visual_small"),
+
+    /** User visually spotted a big pothole ("HIIIIIII !!!"). */
+    VISUAL_BIG("visual_big"),
+
+    /** User just hit a small/medium pothole ("Ouch !") — accelerometer captured. */
+    IMPACT_SMALL("impact_small"),
+
+    /** User just hit a big pothole ("AYOYE !") — accelerometer captured. */
+    IMPACT_BIG("impact_big"),
+}
+
 data class HitEvent(
     val timestampMs: Long,
     val peakVerticalMg: Int,
@@ -10,9 +32,13 @@ data class HitEvent(
     val waveformLateral: List<Int>,
     val baselineMg: Int,
     val peakToBaselineRatio: Int,
+    val source: ReportSource = ReportSource.AUTO,
 )
 
 interface HitDetectionStrategy {
     fun processReading(timestamp: Long, verticalAccelMg: Int, lateralAccelMg: Int, speedMps: Float): HitEvent?
     fun reset()
+
+    /** Return the last [durationMs] worth of accelerometer readings (for manual "Ouch"/"AYOYE" capture). */
+    fun recentReadings(durationMs: Long = 5000): List<AccelReading>
 }

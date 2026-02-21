@@ -218,6 +218,11 @@ map.on('click', 'potholes-circles', e => {
 
   const severityLabel = p.severity_max >= 3 ? 'Heavy' : p.severity_max >= 2 ? 'Medium' : 'Light';
 
+  const manualCount = Number(p.manual_reports) || 0;
+  const sources = typeof p.sources === 'string' ? JSON.parse(p.sources) : (p.sources || {});
+  const sourceLabels = { auto: 'Auto', visual_small: 'Hiii', visual_big: 'HIIIIIII', impact_small: 'Ouch', impact_big: 'AYOYE' };
+  const sourceList = Object.entries(sources).map(([k,v]) => `${sourceLabels[k]||k}: ${v}`).join(', ');
+
   const html = `
     <div class="popup-title">Pothole Cluster</div>
     <div class="popup-row"><span class="popup-label">Hits</span><span class="popup-value">${p.hit_count}</span></div>
@@ -225,6 +230,8 @@ map.on('click', 'potholes-circles', e => {
     <div class="popup-row"><span class="popup-label">Avg severity</span><span class="popup-value">${Number(p.severity_avg).toFixed(1)}</span></div>
     <div class="popup-row"><span class="popup-label">Peak accel</span><span class="popup-value">${p.peak_mg_max} mg</span></div>
     <div class="popup-row"><span class="popup-label">Devices</span><span class="popup-value">${p.devices}</span></div>
+    <div class="popup-row"><span class="popup-label">Manual reports</span><span class="popup-value">${manualCount}</span></div>
+    <div class="popup-row"><span class="popup-label">Sources</span><span class="popup-value">${sourceList || 'auto'}</span></div>
     <div class="popup-row"><span class="popup-label">Confidence</span><span class="popup-value">${(Number(p.confidence) * 100).toFixed(0)}%</span></div>
     <div class="popup-row"><span class="popup-label">First seen</span><span class="popup-value">${formatDate(p.first_seen_ms)}</span></div>
     <div class="popup-row"><span class="popup-label">Last seen</span><span class="popup-value">${formatDate(p.last_seen_ms)}</span></div>

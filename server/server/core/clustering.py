@@ -38,13 +38,15 @@ class PotholeCluster:
     first_seen_ms: int = 0
     last_seen_ms: int = 0
     devices: set[str] = field(default_factory=set)
+    manual_reports: int = 0
+    sources: dict[str, int] = field(default_factory=dict)
 
     # Running sums for centroid update.
     _lat_sum: float = 0.0
     _lon_sum: float = 0.0
 
     def add_hit(self, lat: float, lon: float, severity: int, peak_mg: int,
-                timestamp_ms: int, device_id: str) -> None:
+                timestamp_ms: int, device_id: str, source: str = "auto") -> None:
         self.hit_count += 1
         self._lat_sum += lat
         self._lon_sum += lon
@@ -58,6 +60,9 @@ class PotholeCluster:
         if timestamp_ms > self.last_seen_ms:
             self.last_seen_ms = timestamp_ms
         self.devices.add(device_id)
+        self.sources[source] = self.sources.get(source, 0) + 1
+        if source != "auto":
+            self.manual_reports += 1
 
     @property
     def severity_avg(self) -> float:
@@ -65,10 +70,13 @@ class PotholeCluster:
 
     @property
     def confidence(self) -> float:
-        """Confidence score 0-1 based on hit count and device diversity."""
+        """Confidence score 0-1 based on hit count, device diversity, and manual reports."""
         device_factor = min(len(self.devices) / 3, 1.0)
         count_factor = min(self.hit_count / 5, 1.0)
-        return round((device_factor * 0.6 + count_factor * 0.4), 2)
+        # Manual reports from a human are a strong signal.
+        manual_factor = min(self.manual_reports / 2, 1.0)
+        base = device_factor * 0.5 + count_factor * 0.3 + manual_factor * 0.2
+        return round(min(base, 1.0), 2)
 
     def to_geojson_feature(self) -> dict:
         return {
@@ -86,6 +94,8 @@ class PotholeCluster:
                 "devices": len(self.devices),
                 "first_seen_ms": self.first_seen_ms,
                 "last_seen_ms": self.last_seen_ms,
+                "manual_reports": self.manual_reports,
+                "sources": dict(self.sources),
             },
         }
 
@@ -114,6 +124,7 @@ def cluster_hits(raw_hits: list[dict], radius_m: float = CLUSTER_RADIUS_M) -> li
         peak_mg = pat.get("peak_vertical_mg", 0)
         timestamp_ms = hit.get("timestamp_ms", 0)
         device_id = record.get("device_id", "")
+        source = record.get("source", "auto")
 
         # Find nearest cluster.
         best_cluster = None
@@ -125,10 +136,10 @@ def cluster_hits(raw_hits: list[dict], radius_m: float = CLUSTER_RADIUS_M) -> li
                 best_cluster = c
 
         if best_cluster is not None and best_dist <= radius_m:
-            best_cluster.add_hit(lat, lon, severity, peak_mg, timestamp_ms, device_id)
+            best_cluster.add_hit(lat, lon, severity, peak_mg, timestamp_ms, device_id, source)
         else:
             c = PotholeCluster()
-            c.add_hit(lat, lon, severity, peak_mg, timestamp_ms, device_id)
+            c.add_hit(lat, lon, severity, peak_mg, timestamp_ms, device_id, source)
             clusters.append(c)
 
     return clusters

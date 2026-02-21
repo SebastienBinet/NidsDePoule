@@ -16,6 +16,16 @@
     <string name="last_hour">Last hour</string>
     <string name="this_month">This month</string>
 
+    <!-- Manual report buttons -->
+    <string name="btn_visual_small">Hiii !</string>
+    <string name="btn_visual_big">HIIIIIII !!!</string>
+    <string name="btn_impact_small">Ouch !</string>
+    <string name="btn_impact_big">AYOYE !</string>
+    <string name="btn_visual_small_hint">I see a pothole</string>
+    <string name="btn_visual_big_hint">Big pothole ahead!</string>
+    <string name="btn_impact_small_hint">Just hit one</string>
+    <string name="btn_impact_big_hint">Just hit a big one!</string>
+
     <!-- Hit counters -->
     <string name="hits_detected">Detected</string>
     <string name="hits_sent">Sent</string>

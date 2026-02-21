@@ -53,6 +53,7 @@ class FileHitStorage:
             "device_id": record.device_id,
             "app_version": record.app_version,
             "record_id": record.record_id,
+            "source": record.source,
             "hit": {
                 "timestamp_ms": record.hit.timestamp_ms,
                 "location": {
@@ -93,6 +94,7 @@ class FileHitStorage:
             "severity": record.hit.pattern.severity,
             "peak_mg": record.hit.pattern.peak_vertical_mg,
             "speed": round(record.hit.speed_mps, 1),
+            "source": record.source,
         }
         return json.dumps(entry, separators=(",", ":"))
 

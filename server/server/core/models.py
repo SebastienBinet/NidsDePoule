@@ -56,6 +56,7 @@ class ClientMessageData:
     hits: list[HitData] = field(default_factory=list)
     heartbeat_timestamp_ms: int | None = None
     heartbeat_pending_hits: int = 0
+    source: str = "auto"
 
 
 @dataclass
@@ -66,3 +67,4 @@ class ServerHitRecordData:
     app_version: int
     hit: HitData
     record_id: int = 0
+    source: str = "auto"
