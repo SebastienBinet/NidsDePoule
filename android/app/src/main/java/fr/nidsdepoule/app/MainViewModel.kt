@@ -7,9 +7,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import fr.nidsdepoule.app.detection.AccelReading
 import fr.nidsdepoule.app.detection.CarMountDetector
 import fr.nidsdepoule.app.detection.HitDetectionStrategy
+import fr.nidsdepoule.app.detection.HitEvent
+import fr.nidsdepoule.app.detection.ReportSource
 import fr.nidsdepoule.app.detection.ThresholdHitDetector
+import kotlin.math.abs
 import fr.nidsdepoule.app.reporting.DataUsageTracker
 import fr.nidsdepoule.app.reporting.HitReportData
 import fr.nidsdepoule.app.reporting.HitReporter
@@ -191,6 +195,121 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Manual report buttons ---
+
+    /** "Hiii !" — user visually spots a small/medium pothole. */
+    fun onReportVisualSmall() {
+        val location = lastLocation ?: return
+        val event = HitEvent(
+            timestampMs = System.currentTimeMillis(),
+            peakVerticalMg = 0,
+            peakLateralMg = 0,
+            durationMs = 0,
+            severity = 2,
+            waveformVertical = emptyList(),
+            waveformLateral = emptyList(),
+            baselineMg = 0,
+            peakToBaselineRatio = 0,
+            source = ReportSource.VISUAL_SMALL,
+        )
+        hitsDetected++
+        sendReport(event, location)
+    }
+
+    /** "HIIIIIII !!!" — user visually spots a big pothole. */
+    fun onReportVisualBig() {
+        val location = lastLocation ?: return
+        val event = HitEvent(
+            timestampMs = System.currentTimeMillis(),
+            peakVerticalMg = 0,
+            peakLateralMg = 0,
+            durationMs = 0,
+            severity = 3,
+            waveformVertical = emptyList(),
+            waveformLateral = emptyList(),
+            baselineMg = 0,
+            peakToBaselineRatio = 0,
+            source = ReportSource.VISUAL_BIG,
+        )
+        hitsDetected++
+        sendReport(event, location)
+    }
+
+    /** "Ouch !" — user just hit a small/medium pothole; capture last 5s of accel data. */
+    fun onReportImpactSmall() {
+        val location = lastLocation ?: return
+        val event = buildImpactEvent(ReportSource.IMPACT_SMALL, userSeverity = 2)
+        hitsDetected++
+        accelBuffer.markLastAsHit()
+        sendReport(event, location)
+    }
+
+    /** "AYOYE !" — user just hit a big pothole; capture last 5s of accel data. */
+    fun onReportImpactBig() {
+        val location = lastLocation ?: return
+        val event = buildImpactEvent(ReportSource.IMPACT_BIG, userSeverity = 3)
+        hitsDetected++
+        accelBuffer.markLastAsHit()
+        sendReport(event, location)
+    }
+
+    /** Build a HitEvent from the last 5 seconds of accelerometer data. */
+    private fun buildImpactEvent(source: ReportSource, userSeverity: Int): HitEvent {
+        val readings = hitDetector.recentReadings(5000)
+        if (readings.isEmpty()) {
+            return HitEvent(
+                timestampMs = System.currentTimeMillis(),
+                peakVerticalMg = 0, peakLateralMg = 0, durationMs = 0,
+                severity = userSeverity,
+                waveformVertical = emptyList(), waveformLateral = emptyList(),
+                baselineMg = 0, peakToBaselineRatio = 0,
+                source = source,
+            )
+        }
+
+        // Find peak in the captured window.
+        var peakIdx = 0
+        var peakV = 0
+        for ((i, r) in readings.withIndex()) {
+            val av = abs(r.verticalMg)
+            if (av > peakV) { peakV = av; peakIdx = i }
+        }
+        val peakL = abs(readings[peakIdx].lateralMg)
+
+        // Extract waveform (up to 150 samples centered on peak).
+        val half = 75
+        val start = maxOf(0, peakIdx - half)
+        val end = minOf(readings.size, peakIdx + half)
+        val wV = readings.subList(start, end).map { it.verticalMg }
+        val wL = readings.subList(start, end).map { it.lateralMg }
+
+        // Baseline = median absolute vertical.
+        val sorted = readings.map { abs(it.verticalMg) }.sorted()
+        val baseline = sorted[sorted.size / 2]
+        val ratio = if (baseline > 0) (peakV.toDouble() / baseline * 100).toInt() else 0
+        val duration = (readings.last().timestamp - readings.first().timestamp).toInt()
+
+        return HitEvent(
+            timestampMs = readings[peakIdx].timestamp,
+            peakVerticalMg = peakV,
+            peakLateralMg = peakL,
+            durationMs = duration,
+            severity = userSeverity,
+            waveformVertical = wV,
+            waveformLateral = wL,
+            baselineMg = baseline,
+            peakToBaselineRatio = ratio,
+            source = source,
+        )
+    }
+
+    private fun sendReport(event: HitEvent, location: LocationReading) {
+        val bearingBefore = computeBearingBefore()
+        val bearingAfter = location.bearingDeg
+        val report = HitReportData.create(event, location, bearingBefore, bearingAfter)
+        hitReporter.report(report)
+    }
+
     // --- Data usage accessors (for UI) ---
     val kbLastMinute: Float get() = dataUsageTracker.kbLastMinute()
     val mbLastHour: Float get() = dataUsageTracker.mbLastHour()
@@ -198,7 +317,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Private ---
 
-    private fun onHitDetected(event: fr.nidsdepoule.app.detection.HitEvent) {
+    private fun onHitDetected(event: HitEvent) {
         val location = lastLocation ?: return  // No GPS → can't report
 
         val bearingBefore = computeBearingBefore()

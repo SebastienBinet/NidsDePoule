@@ -70,6 +70,7 @@ def _parse_json_message(body: dict) -> ClientMessageData:
         hits=hits,
         heartbeat_timestamp_ms=heartbeat_ts,
         heartbeat_pending_hits=heartbeat_pending,
+        source=body.get("source", "auto"),
     )
 
 

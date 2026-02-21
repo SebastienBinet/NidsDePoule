@@ -92,6 +92,12 @@ class ThresholdHitDetector(
         lastHitTimestamp = 0
     }
 
+    override fun recentReadings(durationMs: Long): List<AccelReading> {
+        if (buffer.isEmpty()) return emptyList()
+        val cutoff = buffer.last().timestamp - durationMs
+        return buffer.filter { it.timestamp >= cutoff }
+    }
+
     private fun computeBaseline(): Int {
         val absoluteValues = buffer.map { abs(it.verticalMg) }.sorted()
         return absoluteValues[absoluteValues.size / 2]

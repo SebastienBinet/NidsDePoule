@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NidsDePoule — Pothole Map</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+
+  #panel {
+    position: absolute; top: 12px; left: 12px;
+    background: white; border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    padding: 14px 18px; z-index: 1; max-width: 340px;
+  }
+  #panel h1 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  #panel .stats { font-size: 13px; color: #555; line-height: 1.5; }
+  #panel .stats span { font-weight: 600; color: #111; }
+  .btn-row { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn {
+    padding: 5px 12px; font-size: 12px;
+    border: 1px solid #ccc; border-radius: 4px;
+    background: #f8f8f8; cursor: pointer;
+  }
+  .btn:hover { background: #eee; }
+  .btn.active { background: #2563eb; color: white; border-color: #2563eb; }
+
+  .legend {
+    position: absolute; bottom: 30px; left: 12px;
+    background: white; border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    padding: 10px 14px; z-index: 1; font-size: 12px;
+  }
+  .legend-title { font-weight: 600; margin-bottom: 6px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 1.5px solid rgba(0,0,0,0.3); flex-shrink: 0;
+  }
+  .legend-arrow { font-size: 14px; flex-shrink: 0; width: 12px; text-align: center; }
+
+  /* Hit detail drawer */
+  #hit-drawer {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: white; z-index: 2;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.15);
+    max-height: 45vh; overflow: hidden;
+    display: flex; flex-direction: column;
+    transition: transform 0.2s; transform: translateY(100%);
+  }
+  #hit-drawer.open { transform: translateY(0); }
+  #drawer-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px; border-bottom: 1px solid #eee;
+    cursor: pointer; flex-shrink: 0;
+  }
+  #drawer-header h2 { font-size: 14px; font-weight: 600; }
+  #drawer-body { overflow-y: auto; flex: 1; }
+  #hits-table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+  }
+  #hits-table th {
+    position: sticky; top: 0; background: #f8f8f8;
+    padding: 6px 10px; text-align: left; font-weight: 600;
+    border-bottom: 1px solid #ddd;
+  }
+  #hits-table td {
+    padding: 5px 10px; border-bottom: 1px solid #f0f0f0;
+    white-space: nowrap;
+  }
+  #hits-table tr:hover td { background: #f0f8ff; }
+  #hits-table tr.selected td { background: #dbeafe; }
+  .sev-1 { color: #a16207; } .sev-2 { color: #c2410c; } .sev-3 { color: #dc2626; font-weight: 700; }
+  .src-visual { color: #7c3aed; } .src-impact { color: #dc2626; } .src-auto { color: #6b7280; }
+
+  .maplibregl-popup-content {
+    padding: 12px 16px !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px; line-height: 1.6; border-radius: 8px !important;
+    max-width: 360px;
+  }
+  .popup-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .popup-row { display: flex; justify-content: space-between; gap: 16px; }
+  .popup-label { color: #666; }
+  .popup-value { font-weight: 600; }
+  .waveform-mini { margin-top: 6px; }
+  .waveform-mini canvas { border: 1px solid #e5e7eb; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="panel">
+  <h1>NidsDePoule</h1>
+  <div class="stats">
+    Clusters: <span id="cluster-count">-</span> &middot;
+    Hits: <span id="hit-count">-</span> &middot;
+    Devices: <span id="device-count">-</span>
+  </div>
+  <div class="btn-row">
+    <button class="btn active" id="btn-clusters" onclick="toggleLayer('clusters')">Clusters</button>
+    <button class="btn active" id="btn-hits" onclick="toggleLayer('hits')">Individual hits</button>
+    <button class="btn" id="btn-table" onclick="toggleDrawer()">Hit table</button>
+    <button class="btn" onclick="loadAll()">Refresh</button>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-title">Severity</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#facc15"></div> Light (1)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div> Medium (2)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div> Heavy (3)</div>
+  <div class="legend-title" style="margin-top:6px">Source</div>
+  <div class="legend-item"><div class="legend-arrow">&#x25B6;</div> Bearing arrow</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#7c3aed"></div> Visual (Hiii)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#dc2626"></div> Impact (Ouch/AYOYE)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#6b7280"></div> Auto-detected</div>
+</div>
+
+<div id="hit-drawer">
+  <div id="drawer-header" onclick="toggleDrawer()">
+    <h2>Recent Hits (<span id="drawer-count">0</span>)</h2>
+    <span id="drawer-arrow">&#x25B2;</span>
+  </div>
+  <div id="drawer-body">
+    <table id="hits-table">
+      <thead><tr>
+        <th>#</th><th>Time</th><th>Source</th><th>Sev</th>
+        <th>Lat</th><th>Lon</th><th>Bearing</th><th>Speed</th>
+        <th>Peak mg</th><th>Duration</th><th>Waveform</th><th>Device</th>
+      </tr></thead>
+      <tbody id="hits-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      osm: {
+        type: 'raster',
+        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      },
+    },
+    layers: [{
+      id: 'osm-tiles', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19,
+    }],
+  },
+  center: [4.835, 45.764],
+  zoom: 13,
+});
+map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+const layerState = { clusters: true, hits: true };
+let currentPopup = null;
+let allHitsData = [];
+
+// --- Colors ---
+function severityColor(sev) {
+  if (sev >= 2.5) return '#ef4444';
+  if (sev >= 1.5) return '#f97316';
+  return '#facc15';
+}
+function sourceColor(src) {
+  if (src.startsWith('visual')) return '#7c3aed';
+  if (src.startsWith('impact')) return '#dc2626';
+  return '#6b7280';
+}
+function circleRadius(n) { return Math.min(6 + Math.sqrt(n) * 3, 24); }
+function formatDate(ms) {
+  if (!ms) return '-';
+  return new Date(ms).toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+const sourceLabels = { auto:'Auto', visual_small:'Hiii !', visual_big:'HIIIIIII !!!', impact_small:'Ouch !', impact_big:'AYOYE !?!#$!' };
+
+// --- Bearing arrow as GeoJSON line ---
+function bearingLine(lon, lat, bearingDeg, lengthM) {
+  const R = 6371000;
+  const brng = bearingDeg * Math.PI / 180;
+  const lat1 = lat * Math.PI / 180;
+  const lon1 = lon * Math.PI / 180;
+  const lat2 = Math.asin(Math.sin(lat1)*Math.cos(lengthM/R) + Math.cos(lat1)*Math.sin(lengthM/R)*Math.cos(brng));
+  const lon2 = lon1 + Math.atan2(Math.sin(brng)*Math.sin(lengthM/R)*Math.cos(lat1), Math.cos(lengthM/R)-Math.sin(lat1)*Math.sin(lat2));
+  return [[lon, lat], [lon2*180/Math.PI, lat2*180/Math.PI]];
+}
+
+// --- Load clusters ---
+function loadClusters() {
+  return fetch('/api/v1/potholes').then(r => r.json()).then(geojson => {
+    const features = geojson.features || [];
+    document.getElementById('cluster-count').textContent = features.length;
+    document.getElementById('hit-count').textContent = features.reduce((s,f) => s + f.properties.hit_count, 0);
+    document.getElementById('device-count').textContent = features.reduce((s,f) => s + f.properties.devices, 0);
+
+    // Remove old layers.
+    ['potholes-circles','potholes-labels'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+    if (map.getSource('potholes')) map.removeSource('potholes');
+
+    features.forEach(f => {
+      f.properties._color = severityColor(f.properties.severity_avg);
+      f.properties._radius = circleRadius(f.properties.hit_count);
+    });
+    map.addSource('potholes', { type: 'geojson', data: geojson });
+    map.addLayer({
+      id: 'potholes-circles', type: 'circle', source: 'potholes',
+      layout: { visibility: layerState.clusters ? 'visible' : 'none' },
+      paint: {
+        'circle-radius': ['get', '_radius'], 'circle-color': ['get', '_color'],
+        'circle-opacity': 0.8, 'circle-stroke-width': 1.5, 'circle-stroke-color': 'rgba(0,0,0,0.3)',
+      },
+    });
+    map.addLayer({
+      id: 'potholes-labels', type: 'symbol', source: 'potholes',
+      layout: {
+        visibility: layerState.clusters ? 'visible' : 'none',
+        'text-field': ['to-string', ['get', 'hit_count']], 'text-size': 11,
+        'text-font': ['Open Sans Bold'], 'text-allow-overlap': true,
+      },
+      paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.5)', 'text-halo-width': 1 },
+      minzoom: 13,
+    });
+
+    if (features.length > 0) {
+      const bounds = new maplibregl.LngLatBounds();
+      features.forEach(f => bounds.extend(f.geometry.coordinates));
+      map.fitBounds(bounds, { padding: 60, maxZoom: 16 });
+    }
+    return features;
+  });
+}
+
+// --- Load individual hits ---
+function loadHits() {
+  return fetch('/api/v1/hits/recent?limit=500').then(r => r.json()).then(data => {
+    allHitsData = data.hits || [];
+    document.getElementById('drawer-count').textContent = allHitsData.length;
+
+    // Remove old layers.
+    ['hits-points','hits-arrows'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+    ['hits-src','arrows-src'].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+
+    // Build GeoJSON for hit points.
+    const pointFeatures = allHitsData.map((h, i) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [h.location.lon, h.location.lat] },
+      properties: {
+        _idx: i, _color: sourceColor(h.source), severity: h.pattern.severity,
+        source_label: h.source_label, record_id: h.record_id,
+      },
+    }));
+
+    // Build GeoJSON for bearing arrows.
+    const arrowFeatures = allHitsData
+      .filter(h => h.trajectory.bearing_deg)
+      .map((h, i) => ({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: bearingLine(h.location.lon, h.location.lat, h.trajectory.bearing_deg, 30),
+        },
+        properties: { _color: sourceColor(h.source) },
+      }));
+
+    map.addSource('hits-src', { type: 'geojson', data: { type: 'FeatureCollection', features: pointFeatures } });
+    map.addSource('arrows-src', { type: 'geojson', data: { type: 'FeatureCollection', features: arrowFeatures } });
+
+    map.addLayer({
+      id: 'hits-arrows', type: 'line', source: 'arrows-src',
+      layout: { visibility: layerState.hits ? 'visible' : 'none', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', '_color'], 'line-width': 2, 'line-opacity': 0.6 },
+    });
+    map.addLayer({
+      id: 'hits-points', type: 'circle', source: 'hits-src',
+      layout: { visibility: layerState.hits ? 'visible' : 'none' },
+      paint: {
+        'circle-radius': 5, 'circle-color': ['get', '_color'],
+        'circle-opacity': 0.9, 'circle-stroke-width': 1, 'circle-stroke-color': '#fff',
+      },
+    });
+
+    // Populate table.
+    const tbody = document.getElementById('hits-tbody');
+    tbody.innerHTML = '';
+    allHitsData.forEach((h, i) => {
+      const tr = document.createElement('tr');
+      const sevClass = `sev-${h.pattern.severity}`;
+      const srcClass = h.source.startsWith('visual') ? 'src-visual' : h.source.startsWith('impact') ? 'src-impact' : 'src-auto';
+      const wfLen = h.pattern.waveform_samples || 0;
+      tr.innerHTML = `
+        <td>${h.record_id}</td>
+        <td>${formatDate(h.timestamp_ms)}</td>
+        <td class="${srcClass}">${h.source_label}</td>
+        <td class="${sevClass}">${h.pattern.severity}</td>
+        <td>${h.location.lat.toFixed(6)}</td>
+        <td>${h.location.lon.toFixed(6)}</td>
+        <td>${h.trajectory.bearing_deg.toFixed(0)}&deg;</td>
+        <td>${(h.trajectory.speed_mps * 3.6).toFixed(0)} km/h</td>
+        <td>${h.pattern.peak_vertical_mg} mg</td>
+        <td>${h.pattern.duration_ms} ms</td>
+        <td>${wfLen > 0 ? wfLen + ' pts' : '-'}</td>
+        <td>${h.device_id}</td>
+      `;
+      tr.style.cursor = 'pointer';
+      tr.onclick = () => flyToHit(h, i, tr);
+      tbody.appendChild(tr);
+    });
+
+    return allHitsData;
+  });
+}
+
+function flyToHit(h, idx, tr) {
+  map.flyTo({ center: [h.location.lon, h.location.lat], zoom: 17 });
+  // Highlight row.
+  document.querySelectorAll('#hits-tbody tr').forEach(r => r.classList.remove('selected'));
+  if (tr) tr.classList.add('selected');
+  // Show popup with full detail.
+  showHitPopup(h);
+}
+
+function showHitPopup(h) {
+  if (currentPopup) currentPopup.remove();
+  const wfHtml = h.pattern.waveform_samples > 0
+    ? `<div class="waveform-mini"><canvas id="wf-canvas" width="280" height="60"></canvas></div>` : '';
+
+  const html = `
+    <div class="popup-title">${h.source_label}</div>
+    <div class="popup-row"><span class="popup-label">Record</span><span class="popup-value">#${h.record_id}</span></div>
+    <div class="popup-row"><span class="popup-label">Severity</span><span class="popup-value">${h.pattern.severity}</span></div>
+    <div class="popup-row"><span class="popup-label">Peak accel</span><span class="popup-value">${h.pattern.peak_vertical_mg} / ${h.pattern.peak_lateral_mg} mg</span></div>
+    <div class="popup-row"><span class="popup-label">Baseline</span><span class="popup-value">${h.pattern.baseline_mg} mg (ratio ${h.pattern.peak_to_baseline_ratio}%)</span></div>
+    <div class="popup-row"><span class="popup-label">Duration</span><span class="popup-value">${h.pattern.duration_ms} ms</span></div>
+    <div class="popup-row"><span class="popup-label">Speed</span><span class="popup-value">${(h.trajectory.speed_mps * 3.6).toFixed(1)} km/h</span></div>
+    <div class="popup-row"><span class="popup-label">Bearing</span><span class="popup-value">${h.trajectory.bearing_before_deg.toFixed(0)}&deg; &rarr; ${h.trajectory.bearing_deg.toFixed(0)}&deg; &rarr; ${h.trajectory.bearing_after_deg.toFixed(0)}&deg;</span></div>
+    <div class="popup-row"><span class="popup-label">GPS accuracy</span><span class="popup-value">&plusmn;${h.location.accuracy_m} m</span></div>
+    <div class="popup-row"><span class="popup-label">Device</span><span class="popup-value">${h.device_id}</span></div>
+    <div class="popup-row"><span class="popup-label">Time</span><span class="popup-value">${formatDate(h.timestamp_ms)}</span></div>
+    ${wfHtml}
+  `;
+
+  currentPopup = new maplibregl.Popup({ offset: 12, maxWidth: '380px' })
+    .setLngLat([h.location.lon, h.location.lat])
+    .setHTML(html)
+    .addTo(map);
+
+  // Draw waveform after popup DOM is added.
+  if (h.pattern.waveform_samples > 0) {
+    setTimeout(() => drawWaveform(h.pattern.waveform_vertical, h.pattern.waveform_lateral), 50);
+  }
+}
+
+function drawWaveform(vertical, lateral) {
+  const canvas = document.getElementById('wf-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#f9fafb'; ctx.fillRect(0, 0, w, h);
+
+  // Find global range.
+  const all = [...vertical, ...lateral];
+  const minV = Math.min(...all, -500);
+  const maxV = Math.max(...all, 500);
+  const range = maxV - minV || 1;
+
+  function drawLine(data, color) {
+    if (data.length === 0) return;
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < data.length; i++) {
+      const x = (i / (data.length - 1)) * w;
+      const y = h - ((data[i] - minV) / range) * h;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  drawLine(lateral, '#2196F3');
+  drawLine(vertical, '#FF9800');
+}
+
+// --- Toggle helpers ---
+function toggleLayer(name) {
+  layerState[name] = !layerState[name];
+  const btn = document.getElementById('btn-' + name);
+  btn.classList.toggle('active', layerState[name]);
+  const vis = layerState[name] ? 'visible' : 'none';
+  if (name === 'clusters') {
+    if (map.getLayer('potholes-circles')) map.setLayoutProperty('potholes-circles', 'visibility', vis);
+    if (map.getLayer('potholes-labels')) map.setLayoutProperty('potholes-labels', 'visibility', vis);
+  } else {
+    if (map.getLayer('hits-points')) map.setLayoutProperty('hits-points', 'visibility', vis);
+    if (map.getLayer('hits-arrows')) map.setLayoutProperty('hits-arrows', 'visibility', vis);
+  }
+}
+
+function toggleDrawer() {
+  const d = document.getElementById('hit-drawer');
+  d.classList.toggle('open');
+  document.getElementById('btn-table').classList.toggle('active', d.classList.contains('open'));
+}
+
+function loadAll() {
+  loadClusters();
+  loadHits();
+}
+
+// --- Click handlers ---
+map.on('click', 'hits-points', e => {
+  const idx = e.features[0].properties._idx;
+  const h = allHitsData[idx];
+  if (h) showHitPopup(h);
+});
+map.on('click', 'potholes-circles', e => {
+  if (currentPopup) currentPopup.remove();
+  const f = e.features[0];
+  const p = f.properties;
+  const coords = f.geometry.coordinates.slice();
+  const severityLabel = p.severity_max >= 3 ? 'Heavy' : p.severity_max >= 2 ? 'Medium' : 'Light';
+  const manualCount = Number(p.manual_reports) || 0;
+  const sources = typeof p.sources === 'string' ? JSON.parse(p.sources) : (p.sources || {});
+  const srcList = Object.entries(sources).map(([k,v]) => `${sourceLabels[k]||k}: ${v}`).join(', ');
+  const html = `
+    <div class="popup-title">Pothole Cluster</div>
+    <div class="popup-row"><span class="popup-label">Hits</span><span class="popup-value">${p.hit_count}</span></div>
+    <div class="popup-row"><span class="popup-label">Worst severity</span><span class="popup-value">${severityLabel} (${p.severity_max})</span></div>
+    <div class="popup-row"><span class="popup-label">Avg severity</span><span class="popup-value">${Number(p.severity_avg).toFixed(1)}</span></div>
+    <div class="popup-row"><span class="popup-label">Peak accel</span><span class="popup-value">${p.peak_mg_max} mg</span></div>
+    <div class="popup-row"><span class="popup-label">Devices</span><span class="popup-value">${p.devices}</span></div>
+    <div class="popup-row"><span class="popup-label">Manual reports</span><span class="popup-value">${manualCount}</span></div>
+    <div class="popup-row"><span class="popup-label">Sources</span><span class="popup-value">${srcList || 'auto'}</span></div>
+    <div class="popup-row"><span class="popup-label">Confidence</span><span class="popup-value">${(Number(p.confidence) * 100).toFixed(0)}%</span></div>
+    <div class="popup-row"><span class="popup-label">First seen</span><span class="popup-value">${formatDate(p.first_seen_ms)}</span></div>
+    <div class="popup-row"><span class="popup-label">Last seen</span><span class="popup-value">${formatDate(p.last_seen_ms)}</span></div>
+  `;
+  currentPopup = new maplibregl.Popup({ offset: 12 }).setLngLat(coords).setHTML(html).addTo(map);
+});
+
+map.on('mouseenter', 'potholes-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
+map.on('mouseleave', 'potholes-circles', () => { map.getCanvas().style.cursor = ''; });
+map.on('mouseenter', 'hits-points', () => { map.getCanvas().style.cursor = 'pointer'; });
+map.on('mouseleave', 'hits-points', () => { map.getCanvas().style.cursor = ''; });
+
+map.on('load', loadAll);
+</script>
+</body>
+</html>

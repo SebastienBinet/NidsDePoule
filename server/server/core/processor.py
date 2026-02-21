@@ -85,6 +85,7 @@ class HitProcessor:
                 app_version=msg.app_version,
                 hit=hit,
                 record_id=self._next_record_id,
+                source=msg.source,
             )
             self._next_record_id += 1
 
