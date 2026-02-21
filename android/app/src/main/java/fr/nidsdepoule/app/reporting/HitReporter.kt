@@ -20,6 +20,7 @@ class HitReporter(
     private val deviceId: String,
     private val appVersion: Int,
     var serverUrl: String,
+    var onConnectivityChanged: ((Boolean) -> Unit)? = null,
 ) {
     enum class Mode { REALTIME, WIFI_BATCH }
 
@@ -76,6 +77,18 @@ class HitReporter(
         }
     }
 
+    /** Ping the server health endpoint to determine initial connectivity. */
+    fun checkConnectivity() {
+        if (serverUrl.isBlank()) {
+            onConnectivityChanged?.invoke(false)
+            return
+        }
+        scope.launch {
+            val result = httpClient.get("$serverUrl/health")
+            onConnectivityChanged?.invoke(result.success)
+        }
+    }
+
     private suspend fun sendSingle(hitReport: HitReportData) {
         val jsonMap = hitReport.toJsonMap(deviceId, appVersion)
         val jsonStr = JSONObject(jsonMap).toString()
@@ -86,8 +99,10 @@ class HitReporter(
             hitsSent++
             lastSendTimestampMs = System.currentTimeMillis()
             dataUsageTracker.record(result.bytesSent)
+            onConnectivityChanged?.invoke(true)
         } else {
             hitsFailed++
+            onConnectivityChanged?.invoke(false)
             // On failure in real-time mode, buffer the hit for retry
             synchronized(buffer) {
                 buffer.add(hitReport)
@@ -135,8 +150,10 @@ class HitReporter(
             hitsSent += hits.size
             lastSendTimestampMs = System.currentTimeMillis()
             dataUsageTracker.record(result.bytesSent)
+            onConnectivityChanged?.invoke(true)
         } else {
             hitsFailed += hits.size
+            onConnectivityChanged?.invoke(false)
             // Put back in buffer for retry
             synchronized(buffer) {
                 buffer.addAll(0, hits)
