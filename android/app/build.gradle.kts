@@ -31,7 +31,7 @@ android {
             applicationIdSuffix = ".debug"
             isDebuggable = true
             buildConfigField("boolean", "DEV_MODE_DEFAULT", "true")
-            buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://10.0.2.2:8000\"")
+            buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://nidsdepoule.onrender.com\"")
         }
         release {
             isMinifyEnabled = false
@@ -40,7 +40,7 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("boolean", "DEV_MODE_DEFAULT", "false")
-            buildConfigField("String", "DEFAULT_SERVER_URL", "\"\"")
+            buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://nidsdepoule.onrender.com\"")
         }
     }
 
