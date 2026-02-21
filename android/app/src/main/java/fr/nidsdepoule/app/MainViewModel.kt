@@ -26,6 +26,8 @@ import fr.nidsdepoule.app.sensor.LocationCallback
 import fr.nidsdepoule.app.sensor.LocationReading
 import fr.nidsdepoule.app.sensor.LocationSource
 import fr.nidsdepoule.app.ui.AccelerationBuffer
+import android.os.Handler
+import android.os.Looper
 import java.util.UUID
 
 /**
@@ -101,10 +103,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var accelSamples by mutableStateOf<List<AccelerationBuffer.Sample>>(emptyList())
         private set
+    /** True for a short moment after a hit is detected — drives visual flash. */
+    var hitFlashActive by mutableStateOf(false)
+        private set
 
     // Dev mode tap counter
     private var devModeTapCount = 0
     private var lastDevModeTapMs = 0L
+
+    // Handler for UI-thread delayed tasks (e.g., clearing hit flash)
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     // --- Lifecycle ---
     private var isRunning = false
@@ -112,6 +120,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun start() {
         if (isRunning) return
         isRunning = true
+
+        // Wire connectivity callback
+        hitReporter.onConnectivityChanged = { connected ->
+            isConnected = connected
+        }
+        // Initial server health check
+        hitReporter.checkConnectivity()
 
         // Restore month data
         val savedMonthBytes = prefs.getLong("month_bytes", 0)
@@ -304,6 +319,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun sendReport(event: HitEvent, location: LocationReading) {
+        triggerHitFlash()
         val bearingBefore = computeBearingBefore()
         val bearingAfter = location.bearingDeg
         val report = HitReportData.create(event, location, bearingBefore, bearingAfter)
@@ -317,8 +333,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Private ---
 
+    private fun triggerHitFlash() {
+        hitFlashActive = true
+        mainHandler.postDelayed({ hitFlashActive = false }, 600)
+    }
+
     private fun onHitDetected(event: HitEvent) {
         val location = lastLocation ?: return  // No GPS → can't report
+        triggerHitFlash()
 
         val bearingBefore = computeBearingBefore()
         val bearingAfter = location.bearingDeg  // Use current bearing as estimate for "after"

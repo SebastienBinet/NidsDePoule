@@ -1,7 +1,9 @@
 package fr.nidsdepoule.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,7 +26,7 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
         if (fineGranted) {
-            viewModel.start()
+            startDetection()
         }
     }
 
@@ -58,6 +60,7 @@ class MainActivity : ComponentActivity() {
                         onVisualBig = { viewModel.onReportVisualBig() },
                         onImpactSmall = { viewModel.onReportImpactSmall() },
                         onImpactBig = { viewModel.onReportImpactBig() },
+                        hitFlashActive = viewModel.hitFlashActive,
                         onDevModeTap = { viewModel.onDevModeTap() },
                         serverUrl = viewModel.serverUrl,
                         onServerUrlChanged = { viewModel.updateServerUrl(it) },
@@ -70,7 +73,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (hasLocationPermission()) {
-            viewModel.start()
+            startDetection()
         } else {
             locationPermissionLauncher.launch(
                 arrayOf(
@@ -81,9 +84,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onPause() {
-        super.onPause()
+    // No onPause/stop — detection continues in background via foreground service.
+    // The ViewModel and sensors keep running as long as the service is alive.
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Only stop when the activity is truly destroyed (user swipes away from recents)
+        stopService(Intent(this, DetectionService::class.java))
         viewModel.stop()
+    }
+
+    private fun startDetection() {
+        viewModel.start()
+        // Start foreground service to keep detection alive in background
+        val serviceIntent = Intent(this, DetectionService::class.java)
+        startForegroundService(serviceIntent)
+        // Request notification permission on Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                locationPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+            }
+        }
     }
 
     private fun hasLocationPermission(): Boolean {

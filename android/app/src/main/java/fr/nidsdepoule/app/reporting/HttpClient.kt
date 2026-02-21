@@ -10,6 +10,12 @@ interface HttpClient {
      * @return HttpResult with status code and response body, or error.
      */
     suspend fun postJson(url: String, jsonBody: String): HttpResult
+
+    /**
+     * GET the given URL.
+     * @return HttpResult with status code and response body, or error.
+     */
+    suspend fun get(url: String): HttpResult
 }
 
 data class HttpResult(

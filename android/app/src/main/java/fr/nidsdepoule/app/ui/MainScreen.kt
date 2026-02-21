@@ -1,5 +1,8 @@
 package fr.nidsdepoule.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -50,9 +53,11 @@ fun MainScreen(
     onVisualBig: () -> Unit = {},
     onImpactSmall: () -> Unit = {},
     onImpactBig: () -> Unit = {},
+    hitFlashActive: Boolean = false,
     serverUrl: String = "",
     onServerUrlChanged: (String) -> Unit = {},
 ) {
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -118,17 +123,37 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Reporting mode toggle
+        // Reporting mode toggle (greyed out — future feature)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            ),
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                    text = stringResource(R.string.reporting_mode),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.reporting_mode),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                    )
+                    Text(
+                        text = stringResource(R.string.future_feature),
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(4.dp),
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Row(
@@ -136,13 +161,15 @@ fun MainScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     FilterChip(
-                        selected = reportingMode == HitReporter.Mode.REALTIME,
-                        onClick = { onModeChanged(HitReporter.Mode.REALTIME) },
+                        selected = true,
+                        onClick = { },
+                        enabled = false,
                         label = { Text(stringResource(R.string.mode_realtime)) },
                     )
                     FilterChip(
-                        selected = reportingMode == HitReporter.Mode.WIFI_BATCH,
-                        onClick = { onModeChanged(HitReporter.Mode.WIFI_BATCH) },
+                        selected = false,
+                        onClick = { },
+                        enabled = false,
                         label = { Text(stringResource(R.string.mode_wifi_batch)) },
                     )
                 }
@@ -151,15 +178,13 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Data usage (only visible in real-time mode)
-        if (reportingMode == HitReporter.Mode.REALTIME) {
-            DataUsageCard(
-                kbLastMinute = kbLastMinute,
-                mbLastHour = mbLastHour,
-                mbThisMonth = mbThisMonth,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-        }
+        // Data usage
+        DataUsageCard(
+            kbLastMinute = kbLastMinute,
+            mbLastHour = mbLastHour,
+            mbThisMonth = mbThisMonth,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Hit counter
         HitCounterCard(
@@ -197,6 +222,28 @@ fun MainScreen(
             }
         }
     }
+
+    // Full-screen red flash overlay when a hit is detected
+    AnimatedVisibility(
+        visible = hitFlashActive,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0x55FF1744)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "HIT!",
+                fontSize = 48.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+            )
+        }
+    }
+    } // end Box
 }
 
 @Composable

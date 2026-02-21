@@ -9,6 +9,7 @@
     <string name="reporting_mode">Mode de transmission</string>
     <string name="mode_realtime">Temps réel</string>
     <string name="mode_wifi_batch">Wi-Fi uniquement</string>
+    <string name="future_feature">Bientôt disponible</string>
 
     <!-- Data usage -->
     <string name="data_usage">Données envoyées</string>

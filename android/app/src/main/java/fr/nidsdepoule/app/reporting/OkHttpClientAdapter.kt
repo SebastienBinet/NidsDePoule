@@ -47,4 +47,24 @@ class OkHttpClientAdapter : HttpClient {
             }
         }
     }
+
+    override suspend fun get(url: String): HttpResult {
+        return withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder().url(url).get().build()
+                val response = client.newCall(request).execute()
+                val responseBody = response.body?.string() ?: ""
+                HttpResult(
+                    success = response.isSuccessful,
+                    statusCode = response.code,
+                    body = responseBody,
+                )
+            } catch (e: IOException) {
+                HttpResult(
+                    success = false,
+                    error = e.message ?: "network error",
+                )
+            }
+        }
+    }
 }
