@@ -106,7 +106,8 @@
     <button class="btn active" id="btn-clusters" onclick="toggleLayer('clusters')">Clusters</button>
     <button class="btn active" id="btn-hits" onclick="toggleLayer('hits')">Individual hits</button>
     <button class="btn" id="btn-table" onclick="toggleDrawer()">Hit table</button>
-    <button class="btn" onclick="loadAll()">Refresh</button>
+    <button class="btn" onclick="loadAll(true)">Refresh</button>
+    <button class="btn" id="btn-autorefresh" onclick="toggleAutoRefresh()">Auto-refresh</button>
   </div>
 </div>
 
@@ -194,8 +195,23 @@ function bearingLine(lon, lat, bearingDeg, lengthM) {
   return [[lon, lat], [lon2*180/Math.PI, lat2*180/Math.PI]];
 }
 
+// --- Auto-refresh ---
+let autoRefreshInterval = null;
+
+function toggleAutoRefresh() {
+  const btn = document.getElementById('btn-autorefresh');
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = null;
+    btn.classList.remove('active');
+  } else {
+    autoRefreshInterval = setInterval(() => loadAll(false), 1000);
+    btn.classList.add('active');
+  }
+}
+
 // --- Load clusters ---
-function loadClusters() {
+function loadClusters(fitMap) {
   return fetch('/api/v1/potholes').then(r => r.json()).then(geojson => {
     const features = geojson.features || [];
     document.getElementById('cluster-count').textContent = features.length;
@@ -230,7 +246,7 @@ function loadClusters() {
       minzoom: 13,
     });
 
-    if (features.length > 0) {
+    if (fitMap && features.length > 0) {
       const bounds = new maplibregl.LngLatBounds();
       features.forEach(f => bounds.extend(f.geometry.coordinates));
       map.fitBounds(bounds, { padding: 60, maxZoom: 16 });
@@ -410,8 +426,8 @@ function toggleDrawer() {
   document.getElementById('btn-table').classList.toggle('active', d.classList.contains('open'));
 }
 
-function loadAll() {
-  loadClusters();
+function loadAll(fitMap) {
+  loadClusters(!!fitMap);
   loadHits();
 }
 
@@ -451,7 +467,7 @@ map.on('mouseleave', 'potholes-circles', () => { map.getCanvas().style.cursor = 
 map.on('mouseenter', 'hits-points', () => { map.getCanvas().style.cursor = 'pointer'; });
 map.on('mouseleave', 'hits-points', () => { map.getCanvas().style.cursor = ''; });
 
-map.on('load', loadAll);
+map.on('load', () => loadAll(true));
 </script>
 </body>
 </html>
