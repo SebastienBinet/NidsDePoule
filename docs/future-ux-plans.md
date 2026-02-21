@@ -103,3 +103,74 @@ per-device, per-vehicle labelled dataset that can:
 3. **Cross-correlate** visual reports ("Hiii !") that were immediately followed
    by an impact report from another device — confirming the pothole exists and
    measuring its severity from the second device's accelerometer.
+
+---
+
+## 6. Dev Mode — Simulation & Mock GPS
+
+During development we need to test the full pipeline without actually driving.
+Dev mode provides two simulation capabilities:
+
+### 6.1 Table-tap mode (no car required)
+
+When dev mode is enabled, the developer can simulate pothole hits by **tapping
+the phone on a desk or table**. The accelerometer spike from a table tap is
+much smaller than a real pothole, so dev mode lowers the detection thresholds
+dramatically.
+
+- **Purpose**: Quick iteration on the detection → reporting → server → dashboard
+  pipeline without leaving the office.
+- **Data isolation**: Accelerometer patterns collected in dev mode are tagged
+  `dev_mode: true` and should **not** pollute production calibration datasets.
+  They serve only the short-term development effort.
+
+### 6.2 Simulated driving circuits (mock GPS)
+
+The app plays back a pre-recorded GPS trace in a **60-second loop**, feeding
+mock `Location` objects to the rest of the app as if the phone were moving.
+
+Two circuits are planned, both using real Montreal roads:
+
+| Circuit | Character | Example route |
+|---|---|---|
+| **City (with stops)** | Urban streets, traffic lights, 30–50 km/h, frequent stops | Rue Saint-Denis → Rue Sherbrooke → Boulevard Saint-Laurent loop |
+| **Highway** | Autoroute, steady 100 km/h, no stops | A-40 (Métropolitaine) eastbound section |
+
+#### Mock GPS implementation
+
+- Use Android's **`FusedLocationProviderClient` test API** or a
+  **`LocationManager.setTestProvider()`** to inject simulated positions.
+- The simulated positions must be **real coordinates on real Montreal roads** so
+  that Google Maps and Waze, if open in split-screen, display the simulated
+  position on actual streets and react to the movement (route updates, traffic
+  layer, etc.).
+- Speed, bearing, and accuracy fields in each mock `Location` must be
+  realistic for the circuit type.
+- The 60-second loop restarts seamlessly — the last point connects back to the
+  first point.
+
+#### Tricking Google Maps / Waze
+
+Android's mock location provider mechanism (`Settings → Developer options →
+Select mock location app`) allows one app to override the system location for
+all other apps. This means:
+
+1. NidsDePoule registers itself as the mock location provider.
+2. It injects GPS coordinates along the chosen circuit.
+3. Google Maps / Waze see these injected coordinates and navigate accordingly.
+4. The developer can visually confirm that the pothole overlay or audio alerts
+   trigger at the right map positions.
+
+> **Note**: Some apps detect mock locations via `Location.isFromMockProvider()`.
+> This is fine for dev testing but should be disabled for production builds.
+
+#### Circuit selection
+
+The circuit choice can be discussed. Criteria:
+
+- Roads should have a **mix of smooth and rough sections** so simulated
+  potholes feel plausible at specific points.
+- The city circuit should include at least one **stop sign and one traffic
+  light** so speed variation is realistic.
+- The highway circuit should include a **gentle curve** so bearing changes are
+  non-zero.

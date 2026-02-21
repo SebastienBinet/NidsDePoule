@@ -18,7 +18,7 @@ enum class ReportSource(val wire: String) {
     /** User just hit a small/medium pothole ("Ouch !") — accelerometer captured. */
     IMPACT_SMALL("impact_small"),
 
-    /** User just hit a big pothole ("AYOYE !") — accelerometer captured. */
+    /** User just hit a big pothole ("AYOYE !?!#$!") — accelerometer captured. */
     IMPACT_BIG("impact_big"),
 }
 
