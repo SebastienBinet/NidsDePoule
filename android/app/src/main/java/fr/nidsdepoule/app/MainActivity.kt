@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
                         onImpactSmall = { viewModel.onReportImpactSmall() },
                         onImpactBig = { viewModel.onReportImpactBig() },
                         hitFlashActive = viewModel.hitFlashActive,
+                        hitFlashText = viewModel.hitFlashText,
                         onDevModeTap = { viewModel.onDevModeTap() },
                         serverUrl = viewModel.serverUrl,
                         onServerUrlChanged = { viewModel.updateServerUrl(it) },

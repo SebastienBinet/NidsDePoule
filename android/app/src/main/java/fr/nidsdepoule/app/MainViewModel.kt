@@ -106,6 +106,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** True for a short moment after a hit is detected — drives visual flash. */
     var hitFlashActive by mutableStateOf(false)
         private set
+    /** Text shown in the flash overlay — matches the button that was pressed. */
+    var hitFlashText by mutableStateOf("HIT!")
+        private set
 
     // Dev mode tap counter
     private var devModeTapCount = 0
@@ -228,7 +231,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             source = ReportSource.VISUAL_SMALL,
         )
         hitsDetected++
-        sendReport(event, location)
+        sendReport(event, location, "Hiii !")
     }
 
     /** "HIIIIIII !!!" — user visually spots a big pothole. */
@@ -247,7 +250,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             source = ReportSource.VISUAL_BIG,
         )
         hitsDetected++
-        sendReport(event, location)
+        sendReport(event, location, "HIIIIIII !!!")
     }
 
     /** "Ouch !" — user just hit a small/medium pothole; capture last 5s of accel data. */
@@ -256,16 +259,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val event = buildImpactEvent(ReportSource.IMPACT_SMALL, userSeverity = 2)
         hitsDetected++
         accelBuffer.markLastAsHit()
-        sendReport(event, location)
+        sendReport(event, location, "Ouch !")
     }
 
-    /** "AYOYE !" — user just hit a big pothole; capture last 5s of accel data. */
+    /** "AYOYE !?!#$!" — user just hit a big pothole; capture last 5s of accel data. */
     fun onReportImpactBig() {
         val location = lastLocation ?: return
         val event = buildImpactEvent(ReportSource.IMPACT_BIG, userSeverity = 3)
         hitsDetected++
         accelBuffer.markLastAsHit()
-        sendReport(event, location)
+        sendReport(event, location, "AYOYE !?!#\$!")
     }
 
     /** Build a HitEvent from the last 5 seconds of accelerometer data. */
@@ -318,8 +321,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    private fun sendReport(event: HitEvent, location: LocationReading) {
-        triggerHitFlash()
+    private fun sendReport(event: HitEvent, location: LocationReading, flashText: String = "HIT!") {
+        triggerHitFlash(flashText)
         val bearingBefore = computeBearingBefore()
         val bearingAfter = location.bearingDeg
         val report = HitReportData.create(event, location, bearingBefore, bearingAfter)
@@ -333,7 +336,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Private ---
 
-    private fun triggerHitFlash() {
+    private fun triggerHitFlash(text: String = "HIT!") {
+        hitFlashText = text
         hitFlashActive = true
         mainHandler.postDelayed({ hitFlashActive = false }, 600)
     }
