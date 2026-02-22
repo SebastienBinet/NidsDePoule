@@ -78,12 +78,12 @@ fun MainScreen(
                 color = MaterialTheme.colorScheme.primary,
             )
             Text(
-                text = "v4 PINK",
+                text = "v5 PURPLE",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
                 modifier = Modifier
-                    .background(Color(0xFFE91E63), RoundedCornerShape(3.dp))
+                    .background(Color(0xFF9C27B0), RoundedCornerShape(3.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }

@@ -9,6 +9,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 import org.json.JSONObject
 import kotlin.math.*
 
@@ -19,9 +21,10 @@ import kotlin.math.*
  * Loops continuously. At "stop" waypoints (suggested_speed_kmh == 0),
  * pauses for 2 seconds before continuing.
  *
- * Also injects mock locations into the Android system via
- * LocationManager.setTestProviderLocation(), so that Google Maps,
- * Waze, and other apps see the simulated position.
+ * Injects mock locations via TWO mechanisms:
+ * 1. FusedLocationProviderClient.setMockMode/setMockLocation — for apps
+ *    using Google Play Services (Google Maps, Waze, etc.)
+ * 2. LocationManager.setTestProviderLocation — for apps using raw AOSP API
  *
  * Prerequisite: the user must enable Developer Options on the device
  * and select this app as the "mock location app" in Developer Options.
@@ -64,6 +67,8 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
     private var waypoints: List<Waypoint> = emptyList()
     private var running = false
     private var mockProviderAdded = false
+    private var fusedMockActive = false
+    private var fusedClient: FusedLocationProviderClient? = null
 
     // Current interpolation state
     private var segmentIndex = 0
@@ -89,6 +94,7 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
         stopTicksRemaining = 0
         running = true
 
+        setupFusedMock()
         setupMockProvider()
         handler.post(tickRunnable)
     }
@@ -97,14 +103,45 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
         running = false
         handler.removeCallbacks(tickRunnable)
         callback = null
+        teardownFusedMock()
         teardownMockProvider()
     }
 
-    /**
-     * Register as a mock GPS provider so other apps see our position.
-     * Requires the user to select this app as "mock location app" in
-     * Developer Options.
-     */
+    // --- FusedLocationProviderClient mock (for Google Maps, Waze, etc.) ---
+
+    private fun setupFusedMock() {
+        try {
+            val client = LocationServices.getFusedLocationProviderClient(context)
+            fusedClient = client
+            client.setMockMode(true)
+                .addOnSuccessListener {
+                    fusedMockActive = true
+                    Log.i(TAG, "FusedLocationProvider mock mode ON — Google Maps will see simulated position")
+                }
+                .addOnFailureListener { e ->
+                    fusedMockActive = false
+                    Log.w(TAG, "FusedLocationProvider mock mode failed — select this app as mock location app in Developer Options", e)
+                }
+        } catch (e: Exception) {
+            fusedMockActive = false
+            Log.w(TAG, "FusedLocationProvider setup failed", e)
+        }
+    }
+
+    private fun teardownFusedMock() {
+        if (!fusedMockActive) return
+        try {
+            fusedClient?.setMockMode(false)
+                ?.addOnSuccessListener { Log.i(TAG, "FusedLocationProvider mock mode OFF") }
+        } catch (e: Exception) {
+            Log.w(TAG, "FusedLocationProvider teardown failed", e)
+        }
+        fusedMockActive = false
+        fusedClient = null
+    }
+
+    // --- LocationManager mock (for apps using raw AOSP API) ---
+
     private fun setupMockProvider() {
         try {
             val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -113,13 +150,8 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 lm.addTestProvider(
                     PROVIDER,
-                    false,  // requiresNetwork
-                    false,  // requiresSatellite
-                    false,  // requiresCell
-                    false,  // hasMonetaryCost
-                    true,   // supportsAltitude
-                    true,   // supportsSpeed
-                    true,   // supportsBearing
+                    false, false, false, false,
+                    true, true, true,
                     ProviderProperties.POWER_USAGE_LOW,
                     ProviderProperties.ACCURACY_FINE,
                 )
@@ -135,13 +167,13 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
             }
             lm.setTestProviderEnabled(PROVIDER, true)
             mockProviderAdded = true
-            Log.i(TAG, "Mock GPS provider registered — other apps will see simulated position")
+            Log.i(TAG, "LocationManager test provider registered on GPS_PROVIDER")
         } catch (e: SecurityException) {
             mockProviderAdded = false
-            Log.w(TAG, "Cannot set mock provider — enable Developer Options and select this app as mock location app", e)
+            Log.w(TAG, "Cannot set LocationManager test provider", e)
         } catch (e: Exception) {
             mockProviderAdded = false
-            Log.w(TAG, "Mock provider setup failed", e)
+            Log.w(TAG, "LocationManager test provider setup failed", e)
         }
     }
 
@@ -151,12 +183,14 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
             val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
             lm.setTestProviderEnabled(PROVIDER, false)
             lm.removeTestProvider(PROVIDER)
-            Log.i(TAG, "Mock GPS provider removed")
+            Log.i(TAG, "LocationManager test provider removed")
         } catch (e: Exception) {
-            Log.w(TAG, "Mock provider teardown failed", e)
+            Log.w(TAG, "LocationManager test provider teardown failed", e)
         }
         mockProviderAdded = false
     }
+
+    // --- Circuit playback ---
 
     private fun loadCircuit() {
         try {
@@ -191,10 +225,12 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
         val lon = from.lon + (to.lon - from.lon) * t
         val bearing = computeBearing(from.lat, from.lon, to.lat, to.lon)
         val speedMps = from.suggestedSpeedKmh / 3.6f
+        val now = System.currentTimeMillis()
+        val elapsedNanos = SystemClock.elapsedRealtimeNanos()
 
         // Feed our own app
         cb.onLocation(LocationReading(
-            timestampMs = System.currentTimeMillis(),
+            timestampMs = now,
             latMicrodeg = (lat * 1_000_000).toInt(),
             lonMicrodeg = (lon * 1_000_000).toInt(),
             accuracyM = 3,
@@ -202,23 +238,34 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
             bearingDeg = bearing,
         ))
 
-        // Inject into Android system so Google Maps / Waze see it too
+        // Build a Location object for system-level injection
+        val loc = Location(PROVIDER).apply {
+            latitude = lat
+            longitude = lon
+            altitude = 60.0
+            accuracy = 3f
+            speed = speedMps
+            this.bearing = bearing
+            time = now
+            elapsedRealtimeNanos = elapsedNanos
+        }
+
+        // Inject into FusedLocationProviderClient (Google Maps, Waze, etc.)
+        if (fusedMockActive) {
+            try {
+                fusedClient?.setMockLocation(loc)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to inject FLP mock location", e)
+            }
+        }
+
+        // Inject into LocationManager (legacy apps)
         if (mockProviderAdded) {
             try {
-                val loc = Location(PROVIDER).apply {
-                    latitude = lat
-                    longitude = lon
-                    altitude = 60.0  // approximate Montreal elevation
-                    accuracy = 3f
-                    speed = speedMps
-                    this.bearing = bearing
-                    time = System.currentTimeMillis()
-                    elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
-                }
                 val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
                 lm.setTestProviderLocation(PROVIDER, loc)
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to inject mock location", e)
+                Log.w(TAG, "Failed to inject LocationManager mock location", e)
             }
         }
     }
