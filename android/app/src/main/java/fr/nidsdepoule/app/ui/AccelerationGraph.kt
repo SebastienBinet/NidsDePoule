@@ -31,7 +31,7 @@ fun AccelerationGraph(
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(200.dp)
+            .height(120.dp)
     ) {
         if (samples.isEmpty()) return@Canvas
 

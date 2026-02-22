@@ -126,34 +126,64 @@ dramatically.
 
 ### 6.2 Simulated driving circuits (mock GPS)
 
-The app plays back a pre-recorded GPS trace in a **60-second loop**, feeding
-mock `Location` objects to the rest of the app as if the phone were moving.
+**The simulation runs entirely on the phone.**  The app plays back a
+pre-recorded GPS trace in a **60-second loop**, feeding mock `Location` objects
+to the rest of the app as if the phone were moving.  This allows the developer
+to:
 
-Two circuits are planned, both using real Montreal roads:
+1. **Press buttons and use voice commands** to report potholes while the phone
+   simulates driving — the full reporting pipeline is exercised end-to-end.
+2. **Observe the app's behaviour** when approaching a known pothole position
+   (alerts, map overlay, etc.).
+3. **See the simulated position in Google Maps / Waze** running side-by-side,
+   confirming the UX feels right.
 
-| Circuit | Character | Example route |
-|---|---|---|
-| **City (with stops)** | Urban streets, traffic lights, 30–50 km/h, frequent stops | Rue Saint-Denis → Rue Sherbrooke → Boulevard Saint-Laurent loop |
-| **Highway** | Autoroute, steady 100 km/h, no stops | A-40 (Métropolitaine) eastbound section |
+#### App UI toggle
+
+A **"Simulation" toggle** will be visible in the app only when dev mode is
+enabled.  When activated:
+
+- The real GPS provider is replaced by the circuit playback provider.
+- The status bar shows a "SIM" badge next to the "DEV" badge.
+- The developer can select the circuit (city or highway) from a dropdown.
+- The loop runs continuously until the toggle is turned off.
+- All hit reports sent during simulation carry a `dev_mode: true` flag so they
+  are isolated from production data.
+
+#### Circuit: Cimetière Notre-Dame-des-Neiges (city with stops)
+
+The city circuit uses **internal cemetery roads** in Cimetière Notre-Dame-des-
+Neiges, on Mont Royal.  This ensures simulation data stays isolated from real
+public roads and doesn't mislead other users of the system.
+
+The circuit is defined in `tools/simulator/circuits/nddn_cemetery_loop.json`:
+
+| Property | Value |
+|---|---|
+| Total distance | ~923 m |
+| Waypoints | 25 |
+| Stop points | 3 (internal road intersections) |
+| Turns | 3 right turns + 1 gradual S-curve |
+| Speed profile | 0–35 km/h with stops and acceleration phases |
+| Duration per lap | ~60 seconds |
+
+A highway circuit (Autoroute section, steady 100 km/h, no stops) is planned as
+a second option.
 
 #### Mock GPS implementation
 
-- Use Android's **`FusedLocationProviderClient` test API** or a
-  **`LocationManager.setTestProvider()`** to inject simulated positions.
-- The simulated positions must be **real coordinates on real Montreal roads** so
-  that Google Maps and Waze, if open in split-screen, display the simulated
-  position on actual streets and react to the movement (route updates, traffic
-  layer, etc.).
-- Speed, bearing, and accuracy fields in each mock `Location` must be
-  realistic for the circuit type.
-- The 60-second loop restarts seamlessly — the last point connects back to the
-  first point.
+- Use Android's **`LocationManager.setTestProvider()`** to inject simulated
+  positions from the waypoint trace.
+- Speed, bearing, and accuracy fields in each mock `Location` are computed
+  from the circuit data so they are realistic.
+- The 60-second loop restarts seamlessly — the last waypoint connects back to
+  the first.
 
 #### Tricking Google Maps / Waze
 
 Android's mock location provider mechanism (`Settings → Developer options →
 Select mock location app`) allows one app to override the system location for
-all other apps. This means:
+all other apps.  This means:
 
 1. NidsDePoule registers itself as the mock location provider.
 2. It injects GPS coordinates along the chosen circuit.
@@ -163,14 +193,3 @@ all other apps. This means:
 
 > **Note**: Some apps detect mock locations via `Location.isFromMockProvider()`.
 > This is fine for dev testing but should be disabled for production builds.
-
-#### Circuit selection
-
-The circuit choice can be discussed. Criteria:
-
-- Roads should have a **mix of smooth and rough sections** so simulated
-  potholes feel plausible at specific points.
-- The city circuit should include at least one **stop sign and one traffic
-  light** so speed variation is realistic.
-- The highway circuit should include a **gentle curve** so bearing changes are
-  non-zero.
