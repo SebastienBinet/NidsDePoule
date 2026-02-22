@@ -99,15 +99,6 @@
   .popup-value { font-weight: 600; }
   .waveform-mini { margin-top: 6px; }
   .waveform-mini canvas { border: 1px solid #e5e7eb; border-radius: 4px; }
-
-  /* Highlight ring rendered as an HTML marker on the map */
-  .hl-ring {
-    border-radius: 50%;
-    background: rgba(0, 230, 118, 0.25);
-    border: 3px solid #00e676;
-    box-shadow: 0 0 12px 4px rgba(0, 230, 118, 0.45);
-    pointer-events: none;
-  }
 </style>
 </head>
 <body>
@@ -157,7 +148,7 @@
   <div class="legend-item"><div class="legend-dot" style="background:#dc2626"></div> Impact (Ouch/AYOYE)</div>
   <div class="legend-item"><div class="legend-dot" style="background:#6b7280"></div> Auto-detected</div>
   <div class="legend-title" style="margin-top:6px">Highlight</div>
-  <div class="legend-item"><div class="legend-dot" style="background:transparent;border-color:#00e676;box-shadow:0 0 4px #00e676"></div> Recent hit (pulsing)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:rgba(0,230,118,0.25);border-color:#00e676"></div> Recent hit (circle)</div>
 </div>
 
 <div id="hit-drawer">
@@ -202,7 +193,6 @@ map.addControl(new maplibregl.NavigationControl(), 'top-right');
 const layerState = { clusters: true, hits: true };
 let currentPopup = null;
 let allHitsData = [];
-let highlightMarkers = [];  // Array of maplibregl.Marker for highlight rings
 
 // --- Colors ---
 function severityColor(sev) {
@@ -248,13 +238,13 @@ function toggleAutoRefresh() {
   }
 }
 
-// --- Highlight recent hits ---
+// --- Highlight recent hits (native circle layer) ---
 function updateHighlights() {
-  // Remove old highlight markers.
-  highlightMarkers.forEach(m => m.remove());
-  highlightMarkers = [];
-
   const countEl = document.getElementById('hl-count');
+
+  // Remove previous highlight layers/sources.
+  ['hl-circles', 'hl-rings'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+  if (map.getSource('hl-src')) map.removeSource('hl-src');
 
   if (allHitsData.length === 0) { countEl.textContent = '0'; return; }
 
@@ -263,8 +253,7 @@ function updateHighlights() {
   const nowMs = Date.now();
   const cutoffMs = nowMs - windowSec * 1000;
 
-  // Filter hits within the time window, keep the most recent ones.
-  // allHitsData is sorted newest-first (by server_timestamp_ms desc).
+  // Filter hits within the time window, newest first.
   const recent = allHitsData
     .filter(h => (h.server_timestamp_ms || h.timestamp_ms) >= cutoffMs)
     .slice(0, maxCount);
@@ -272,23 +261,41 @@ function updateHighlights() {
   countEl.textContent = String(recent.length);
   if (recent.length === 0) return;
 
-  // Newest hit gets full intensity, oldest gets minimum.
-  recent.forEach((h, i) => {
-    const rank = i / Math.max(recent.length - 1, 1);  // 0 = newest, 1 = oldest
-    const opacity = 1.0 - rank * 0.8;   // 1.0 → 0.2
-    const size = 32 - rank * 14;         // 32px → 18px
+  // Build GeoJSON with per-feature radius & opacity.
+  // Newest = biggest circle (20px), oldest = smallest (8px).
+  const features = recent.map((h, i) => {
+    const rank = i / Math.max(recent.length - 1, 1);  // 0=newest, 1=oldest
+    return {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [h.location.lon, h.location.lat] },
+      properties: {
+        _hl_radius: 20 - rank * 12,      // 20 → 8
+        _hl_opacity: 1.0 - rank * 0.7,   // 1.0 → 0.3
+      },
+    };
+  });
 
-    const el = document.createElement('div');
-    el.className = 'hl-ring';
-    el.style.width = size + 'px';
-    el.style.height = size + 'px';
-    el.style.opacity = String(opacity);
+  map.addSource('hl-src', { type: 'geojson', data: { type: 'FeatureCollection', features } });
 
-    const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-      .setLngLat([h.location.lon, h.location.lat])
-      .addTo(map);
-
-    highlightMarkers.push(marker);
+  // Filled circle (semi-transparent green).
+  map.addLayer({
+    id: 'hl-circles', type: 'circle', source: 'hl-src',
+    paint: {
+      'circle-radius': ['get', '_hl_radius'],
+      'circle-color': '#00e676',
+      'circle-opacity': ['*', ['get', '_hl_opacity'], 0.25],
+    },
+  });
+  // Stroke ring on top.
+  map.addLayer({
+    id: 'hl-rings', type: 'circle', source: 'hl-src',
+    paint: {
+      'circle-radius': ['get', '_hl_radius'],
+      'circle-color': 'transparent',
+      'circle-stroke-width': 3,
+      'circle-stroke-color': '#00e676',
+      'circle-stroke-opacity': ['get', '_hl_opacity'],
+    },
   });
 }
 
