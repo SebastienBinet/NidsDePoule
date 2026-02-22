@@ -55,6 +55,8 @@ fun MainScreen(
     onImpactBig: () -> Unit = {},
     hitFlashActive: Boolean = false,
     hitFlashText: String = "HIT!",
+    isSimulating: Boolean = false,
+    onToggleSimulation: () -> Unit = {},
     serverUrl: String = "",
     onServerUrlChanged: (String) -> Unit = {},
 ) {
@@ -94,6 +96,7 @@ fun MainScreen(
             hasGpsFix = hasGpsFix,
             isConnected = isConnected,
             devModeEnabled = devModeEnabled,
+            isSimulating = isSimulating,
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -181,9 +184,22 @@ fun MainScreen(
             hitsPending = hitsPending,
         )
 
-        // Server URL (only visible in dev mode)
+        // Dev mode controls (simulation + server URL)
         if (devModeEnabled) {
             Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = onToggleSimulation,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isSimulating) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
+                ),
+            ) {
+                Text(
+                    text = if (isSimulating) "Stop Simulation" else "Simulate (Cemetery Circuit)",
+                    fontSize = 13.sp,
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
             OutlinedTextField(
                 value = serverUrl,
                 onValueChange = onServerUrlChanged,
@@ -240,6 +256,7 @@ private fun StatusBar(
     hasGpsFix: Boolean,
     isConnected: Boolean,
     devModeEnabled: Boolean,
+    isSimulating: Boolean = false,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -268,6 +285,17 @@ private fun StatusBar(
                         MaterialTheme.colorScheme.errorContainer,
                         RoundedCornerShape(4.dp),
                     )
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+        if (isSimulating) {
+            Text(
+                text = "SIM",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier
+                    .background(Color(0xFF4CAF50), RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }
