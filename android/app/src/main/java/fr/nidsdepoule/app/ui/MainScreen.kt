@@ -64,13 +64,27 @@ fun MainScreen(
             .fillMaxSize()
             .padding(16.dp),
     ) {
-        // Title
-        Text(
-            text = stringResource(R.string.app_name),
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        // Title with deploy canary
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.app_name),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = "v4 PINK",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier
+                    .background(Color(0xFFE91E63), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
