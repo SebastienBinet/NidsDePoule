@@ -62,6 +62,8 @@ class MainActivity : ComponentActivity() {
                         onImpactBig = { viewModel.onReportImpactBig() },
                         hitFlashActive = viewModel.hitFlashActive,
                         hitFlashText = viewModel.hitFlashText,
+                        isSimulating = viewModel.isSimulating,
+                        onToggleSimulation = { viewModel.toggleSimulation() },
                         onDevModeTap = { viewModel.onDevModeTap() },
                         serverUrl = viewModel.serverUrl,
                         onServerUrlChanged = { viewModel.updateServerUrl(it) },

@@ -22,6 +22,7 @@ import fr.nidsdepoule.app.sensor.AccelerometerCallback
 import fr.nidsdepoule.app.sensor.AccelerometerSource
 import fr.nidsdepoule.app.sensor.AndroidAccelerometer
 import fr.nidsdepoule.app.sensor.AndroidLocationSource
+import fr.nidsdepoule.app.sensor.CircuitLocationSource
 import fr.nidsdepoule.app.sensor.LocationCallback
 import fr.nidsdepoule.app.sensor.LocationReading
 import fr.nidsdepoule.app.sensor.LocationSource
@@ -60,7 +61,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Platform adapters ---
     private val accelerometer: AccelerometerSource = AndroidAccelerometer(application)
-    private val locationSource: LocationSource = AndroidLocationSource(application)
+    private val realLocationSource: LocationSource = AndroidLocationSource(application)
+    private val circuitLocationSource: LocationSource = CircuitLocationSource(application)
+    private var activeLocationSource: LocationSource = realLocationSource
 
     // --- Server URL (persisted, editable in dev mode) ---
     var serverUrl by mutableStateOf(
@@ -108,6 +111,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     /** Text shown in the flash overlay — matches the button that was pressed. */
     var hitFlashText by mutableStateOf("HIT!")
+        private set
+    /** True when circuit simulation is running instead of real GPS. */
+    var isSimulating by mutableStateOf(false)
         private set
 
     // Dev mode tap counter
@@ -165,27 +171,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         })
 
-        // Start GPS
-        locationSource.start(LocationCallback { reading ->
-            hasGpsFix = true
-            lastLocation = reading
-            carMountDetector.updateSpeed(reading.speedMps)
+        // Start GPS (real or simulated)
+        startLocationSource()
+    }
 
-            // Keep location history for bearing before/after computation
-            synchronized(locationHistory) {
-                locationHistory.addLast(reading)
-                if (locationHistory.size > 100) {
-                    locationHistory.removeFirst()
-                }
+    /** Shared location callback used by both real and simulated GPS. */
+    private val locationCb = LocationCallback { reading ->
+        hasGpsFix = true
+        lastLocation = reading
+        carMountDetector.updateSpeed(reading.speedMps)
+
+        // Keep location history for bearing before/after computation
+        synchronized(locationHistory) {
+            locationHistory.addLast(reading)
+            if (locationHistory.size > 100) {
+                locationHistory.removeFirst()
             }
-        })
+        }
+    }
+
+    private fun startLocationSource() {
+        activeLocationSource.start(locationCb)
     }
 
     fun stop() {
         if (!isRunning) return
         isRunning = false
         accelerometer.stop()
-        locationSource.stop()
+        activeLocationSource.stop()
 
         // Persist month data
         prefs.edit()
@@ -211,6 +224,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             devModeEnabled = !devModeEnabled
             devModeTapCount = 0
         }
+    }
+
+    /** Toggle between real GPS and cemetery circuit simulation. */
+    fun toggleSimulation() {
+        if (!isRunning) return
+        activeLocationSource.stop()
+        isSimulating = !isSimulating
+        activeLocationSource = if (isSimulating) circuitLocationSource else realLocationSource
+        hasGpsFix = false
+        lastLocation = null
+        synchronized(locationHistory) { locationHistory.clear() }
+        startLocationSource()
     }
 
     // --- Manual report buttons ---
