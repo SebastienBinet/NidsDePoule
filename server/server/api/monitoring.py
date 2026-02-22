@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/v1")
+
+# Load build info once at import time.
+_BUILD_INFO_PATH = Path(__file__).parent.parent / "build_info.json"
+_BUILD_INFO: dict = {}
+if _BUILD_INFO_PATH.exists():
+    try:
+        _BUILD_INFO = json.loads(_BUILD_INFO_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        pass
 
 
 @router.get("/health")
@@ -28,7 +38,7 @@ async def health() -> dict:
         storage_writable = False
 
     snapshot = stats.snapshot()
-    return {
+    result = {
         "status": "ok",
         "version": "0.1.0",
         "uptime_seconds": snapshot["uptime_seconds"],
@@ -36,6 +46,8 @@ async def health() -> dict:
         "storage_writable": storage_writable,
         "disk_free_gb": disk_free_gb,
     }
+    result.update(_BUILD_INFO)
+    return result
 
 
 @router.get("/stats")

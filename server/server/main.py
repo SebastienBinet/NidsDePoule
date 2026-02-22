@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
 
 from pathlib import Path
 
@@ -59,7 +60,7 @@ def _setup_logging(config: AppConfig) -> None:
     processors = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.TimeStamper(fmt="iso", utc=False),
     ]
 
     if config.logging.format == "json":

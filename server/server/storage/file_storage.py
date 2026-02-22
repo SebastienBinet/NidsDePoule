@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import struct
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -83,7 +84,7 @@ class FileHitStorage:
     def _to_jsonl_entry(self, record: ServerHitRecordData) -> str:
         """Create a compact JSON Lines entry for the index."""
         dt = datetime.fromtimestamp(
-            record.hit.timestamp_ms / 1000, tz=timezone.utc
+            record.hit.timestamp_ms / 1000, tz=ZoneInfo("America/Montreal")
         )
         entry = {
             "id": record.record_id,
