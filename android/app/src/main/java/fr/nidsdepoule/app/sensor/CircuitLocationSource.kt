@@ -1,8 +1,16 @@
 package fr.nidsdepoule.app.sensor
 
 import android.content.Context
+import android.location.Location
+import android.location.LocationManager
+import android.location.provider.ProviderProperties
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 import org.json.JSONObject
 import kotlin.math.*
 
@@ -12,6 +20,14 @@ import kotlin.math.*
  * Emits LocationReadings at 1 Hz by interpolating between waypoints.
  * Loops continuously. At "stop" waypoints (suggested_speed_kmh == 0),
  * pauses for 2 seconds before continuing.
+ *
+ * Injects mock locations via TWO mechanisms:
+ * 1. FusedLocationProviderClient.setMockMode/setMockLocation — for apps
+ *    using Google Play Services (Google Maps, Waze, etc.)
+ * 2. LocationManager.setTestProviderLocation — for apps using raw AOSP API
+ *
+ * Prerequisite: the user must enable Developer Options on the device
+ * and select this app as the "mock location app" in Developer Options.
  */
 class CircuitLocationSource(private val context: Context) : LocationSource {
 
@@ -23,15 +39,41 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
         val isStop: Boolean,
     )
 
+    companion object {
+        private const val TAG = "CircuitSim"
+        private const val PROVIDER = LocationManager.GPS_PROVIDER
+
+        private fun haversineDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+            val R = 6_371_000.0
+            val dLat = Math.toRadians(lat2 - lat1)
+            val dLon = Math.toRadians(lon2 - lon1)
+            val a = sin(dLat / 2).pow(2) +
+                    cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+                    sin(dLon / 2).pow(2)
+            return R * 2 * atan2(sqrt(a), sqrt(1 - a))
+        }
+
+        private fun computeBearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+            val dLon = Math.toRadians(lon2 - lon1)
+            val y = sin(dLon) * cos(Math.toRadians(lat2))
+            val x = cos(Math.toRadians(lat1)) * sin(Math.toRadians(lat2)) -
+                    sin(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * cos(dLon)
+            return ((Math.toDegrees(atan2(y, x)) + 360) % 360).toFloat()
+        }
+    }
+
     private val handler = Handler(Looper.getMainLooper())
     private var callback: LocationCallback? = null
     private var waypoints: List<Waypoint> = emptyList()
     private var running = false
+    private var mockProviderAdded = false
+    private var fusedMockActive = false
+    private var fusedClient: FusedLocationProviderClient? = null
 
     // Current interpolation state
-    private var segmentIndex = 0       // index of the waypoint we're traveling FROM
-    private var segmentProgress = 0.0  // 0.0 = at waypoint[segmentIndex], 1.0 = at next
-    private var stopTicksRemaining = 0 // countdown when stopped
+    private var segmentIndex = 0
+    private var segmentProgress = 0.0
+    private var stopTicksRemaining = 0
 
     private val tickRunnable = object : Runnable {
         override fun run() {
@@ -51,6 +93,9 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
         segmentProgress = 0.0
         stopTicksRemaining = 0
         running = true
+
+        setupFusedMock()
+        setupMockProvider()
         handler.post(tickRunnable)
     }
 
@@ -58,7 +103,94 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
         running = false
         handler.removeCallbacks(tickRunnable)
         callback = null
+        teardownFusedMock()
+        teardownMockProvider()
     }
+
+    // --- FusedLocationProviderClient mock (for Google Maps, Waze, etc.) ---
+
+    private fun setupFusedMock() {
+        try {
+            val client = LocationServices.getFusedLocationProviderClient(context)
+            fusedClient = client
+            client.setMockMode(true)
+                .addOnSuccessListener {
+                    fusedMockActive = true
+                    Log.i(TAG, "FusedLocationProvider mock mode ON — Google Maps will see simulated position")
+                }
+                .addOnFailureListener { e ->
+                    fusedMockActive = false
+                    Log.w(TAG, "FusedLocationProvider mock mode failed — select this app as mock location app in Developer Options", e)
+                }
+        } catch (e: Exception) {
+            fusedMockActive = false
+            Log.w(TAG, "FusedLocationProvider setup failed", e)
+        }
+    }
+
+    private fun teardownFusedMock() {
+        if (!fusedMockActive) return
+        try {
+            fusedClient?.setMockMode(false)
+                ?.addOnSuccessListener { Log.i(TAG, "FusedLocationProvider mock mode OFF") }
+        } catch (e: Exception) {
+            Log.w(TAG, "FusedLocationProvider teardown failed", e)
+        }
+        fusedMockActive = false
+        fusedClient = null
+    }
+
+    // --- LocationManager mock (for apps using raw AOSP API) ---
+
+    private fun setupMockProvider() {
+        try {
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            try { lm.removeTestProvider(PROVIDER) } catch (_: Exception) {}
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                lm.addTestProvider(
+                    PROVIDER,
+                    false, false, false, false,
+                    true, true, true,
+                    ProviderProperties.POWER_USAGE_LOW,
+                    ProviderProperties.ACCURACY_FINE,
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                lm.addTestProvider(
+                    PROVIDER,
+                    false, false, false, false,
+                    true, true, true,
+                    android.location.Criteria.POWER_LOW,
+                    android.location.Criteria.ACCURACY_FINE,
+                )
+            }
+            lm.setTestProviderEnabled(PROVIDER, true)
+            mockProviderAdded = true
+            Log.i(TAG, "LocationManager test provider registered on GPS_PROVIDER")
+        } catch (e: SecurityException) {
+            mockProviderAdded = false
+            Log.w(TAG, "Cannot set LocationManager test provider", e)
+        } catch (e: Exception) {
+            mockProviderAdded = false
+            Log.w(TAG, "LocationManager test provider setup failed", e)
+        }
+    }
+
+    private fun teardownMockProvider() {
+        if (!mockProviderAdded) return
+        try {
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            lm.setTestProviderEnabled(PROVIDER, false)
+            lm.removeTestProvider(PROVIDER)
+            Log.i(TAG, "LocationManager test provider removed")
+        } catch (e: Exception) {
+            Log.w(TAG, "LocationManager test provider teardown failed", e)
+        }
+        mockProviderAdded = false
+    }
+
+    // --- Circuit playback ---
 
     private fun loadCircuit() {
         try {
@@ -89,28 +221,56 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
         val to = waypoints[(segmentIndex + 1) % waypoints.size]
         val t = segmentProgress
 
-        // Linear interpolation
         val lat = from.lat + (to.lat - from.lat) * t
         val lon = from.lon + (to.lon - from.lon) * t
-
-        // Bearing from current segment
         val bearing = computeBearing(from.lat, from.lon, to.lat, to.lon)
-
-        // Speed: use the "from" waypoint's suggested speed
         val speedMps = from.suggestedSpeedKmh / 3.6f
+        val now = System.currentTimeMillis()
+        val elapsedNanos = SystemClock.elapsedRealtimeNanos()
 
+        // Feed our own app
         cb.onLocation(LocationReading(
-            timestampMs = System.currentTimeMillis(),
+            timestampMs = now,
             latMicrodeg = (lat * 1_000_000).toInt(),
             lonMicrodeg = (lon * 1_000_000).toInt(),
-            accuracyM = 3, // simulated GPS accuracy
+            accuracyM = 3,
             speedMps = speedMps,
             bearingDeg = bearing,
         ))
+
+        // Build a Location object for system-level injection
+        val loc = Location(PROVIDER).apply {
+            latitude = lat
+            longitude = lon
+            altitude = 60.0
+            accuracy = 3f
+            speed = speedMps
+            this.bearing = bearing
+            time = now
+            elapsedRealtimeNanos = elapsedNanos
+        }
+
+        // Inject into FusedLocationProviderClient (Google Maps, Waze, etc.)
+        if (fusedMockActive) {
+            try {
+                fusedClient?.setMockLocation(loc)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to inject FLP mock location", e)
+            }
+        }
+
+        // Inject into LocationManager (legacy apps)
+        if (mockProviderAdded) {
+            try {
+                val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                lm.setTestProviderLocation(PROVIDER, loc)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to inject LocationManager mock location", e)
+            }
+        }
     }
 
     private fun advancePosition() {
-        // If currently stopped, count down
         if (stopTicksRemaining > 0) {
             stopTicksRemaining--
             return
@@ -118,14 +278,10 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
 
         val from = waypoints[segmentIndex]
         val to = waypoints[(segmentIndex + 1) % waypoints.size]
-
-        // Distance of the current segment
         val segmentDistM = haversineDistance(from.lat, from.lon, to.lat, to.lon)
-
-        // How far we travel in 1 second at current speed
         val speedMps = from.suggestedSpeedKmh / 3.6f
+
         if (segmentDistM <= 0 || speedMps <= 0) {
-            // Skip zero-length or zero-speed segments
             moveToNextSegment()
             return
         }
@@ -133,20 +289,17 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
         val progressPerTick = speedMps / segmentDistM
         segmentProgress += progressPerTick
 
-        // Crossed into next segment?
         while (segmentProgress >= 1.0) {
             segmentProgress -= 1.0
             moveToNextSegment()
 
-            // If the new waypoint is a stop, pause
             val current = waypoints[segmentIndex]
             if (current.isStop) {
-                stopTicksRemaining = 2  // 2 seconds pause
+                stopTicksRemaining = 2
                 segmentProgress = 0.0
                 break
             }
 
-            // Adjust progress for new segment distance
             val nextFrom = waypoints[segmentIndex]
             val nextTo = waypoints[(segmentIndex + 1) % waypoints.size]
             val nextDist = haversineDistance(nextFrom.lat, nextFrom.lon, nextTo.lat, nextTo.lon)
@@ -158,25 +311,5 @@ class CircuitLocationSource(private val context: Context) : LocationSource {
 
     private fun moveToNextSegment() {
         segmentIndex = (segmentIndex + 1) % waypoints.size
-    }
-
-    companion object {
-        private fun haversineDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-            val R = 6_371_000.0
-            val dLat = Math.toRadians(lat2 - lat1)
-            val dLon = Math.toRadians(lon2 - lon1)
-            val a = sin(dLat / 2).pow(2) +
-                    cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-                    sin(dLon / 2).pow(2)
-            return R * 2 * atan2(sqrt(a), sqrt(1 - a))
-        }
-
-        private fun computeBearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
-            val dLon = Math.toRadians(lon2 - lon1)
-            val y = sin(dLon) * cos(Math.toRadians(lat2))
-            val x = cos(Math.toRadians(lat1)) * sin(Math.toRadians(lat2)) -
-                    sin(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * cos(dLon)
-            return ((Math.toDegrees(atan2(y, x)) + 360) % 360).toFloat()
-        }
     }
 }
