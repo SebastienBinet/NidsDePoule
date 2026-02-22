@@ -122,53 +122,35 @@ fun MainScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Reporting mode toggle (greyed out — future feature)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            ),
+        // Reporting mode — greyed out single line
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.reporting_mode),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                )
-                FilterChip(
-                    selected = true,
-                    onClick = { },
-                    enabled = false,
-                    label = { Text(stringResource(R.string.mode_realtime), fontSize = 11.sp) },
-                )
-                FilterChip(
-                    selected = false,
-                    onClick = { },
-                    enabled = false,
-                    label = { Text(stringResource(R.string.mode_wifi_batch), fontSize = 11.sp) },
-                )
-                Text(
-                    text = stringResource(R.string.future_feature),
-                    fontSize = 9.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            RoundedCornerShape(4.dp),
-                        )
-                        .padding(horizontal = 4.dp, vertical = 1.dp),
-                )
-            }
+            Text(
+                text = "${stringResource(R.string.reporting_mode)}: ${stringResource(R.string.mode_realtime)}",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+            )
+            Text(
+                text = stringResource(R.string.future_feature),
+                fontSize = 9.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                modifier = Modifier
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        RoundedCornerShape(3.dp),
+                    )
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
+            )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Data usage
         DataUsageCard(
