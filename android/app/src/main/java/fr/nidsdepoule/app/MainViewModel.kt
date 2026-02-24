@@ -25,6 +25,7 @@ import fr.nidsdepoule.app.sensor.LocationCallback
 import fr.nidsdepoule.app.sensor.LocationReading
 import fr.nidsdepoule.app.sensor.LocationSource
 import fr.nidsdepoule.app.ui.AccelerationBuffer
+import fr.nidsdepoule.app.ui.VoiceFeedback
 import android.os.Handler
 import android.os.Looper
 import java.util.UUID
@@ -53,11 +54,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         application.packageManager.getPackageInfo(application.packageName, 0).versionName ?: "0.1.0"
     } catch (_: Exception) { "0.1.0" }
 
-    // --- Core modules (pure Kotlin, no Android deps) ---
+    // --- Core modules ---
     private val hitDetector: HitDetectionStrategy = ThresholdHitDetector()
     private val carMountDetector = CarMountDetector()
     val accelBuffer = AccelerationBuffer()
     private val dataUsageTracker = DataUsageTracker()
+    private val voiceFeedback = VoiceFeedback(application)
 
     // --- Platform adapters ---
     private val accelerometer: AccelerometerSource = AndroidAccelerometer(application)
@@ -114,6 +116,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     /** True when circuit simulation is running instead of real GPS. */
     var isSimulating by mutableStateOf(false)
+        private set
+    /** When true, voice feedback is muted. Default: unmuted (voice active). */
+    var voiceMuted by mutableStateOf(false)
         private set
 
     // Dev mode tap counter
@@ -200,6 +205,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isRunning = false
         accelerometer.stop()
         activeLocationSource.stop()
+        voiceFeedback.shutdown()
 
         // Persist month data
         prefs.edit()
@@ -225,6 +231,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             devModeEnabled = !devModeEnabled
             devModeTapCount = 0
         }
+    }
+
+    fun toggleVoice() {
+        voiceMuted = !voiceMuted
     }
 
     /** Toggle between real GPS and cemetery circuit simulation. */
@@ -368,6 +378,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun onHitDetected(event: HitEvent) {
         val location = lastLocation ?: return  // No GPS -> can't report
         triggerHitFlash()
+
+        // Voice feedback
+        if (!voiceMuted) {
+            voiceFeedback.speakHit(event.severity)
+        }
 
         val bearingBefore = computeBearingBefore()
         val bearingAfter = location.bearingDeg  // Use current bearing as estimate for "after"

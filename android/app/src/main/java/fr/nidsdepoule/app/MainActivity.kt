@@ -71,6 +71,8 @@ class MainActivity : ComponentActivity() {
                         onDevModeTap = { viewModel.onDevModeTap() },
                         serverUrl = viewModel.serverUrl,
                         onServerUrlChanged = { viewModel.updateServerUrl(it) },
+                        voiceMuted = viewModel.voiceMuted,
+                        onToggleVoice = { viewModel.toggleVoice() },
                     )
                 }
             }

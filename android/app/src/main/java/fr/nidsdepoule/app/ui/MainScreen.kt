@@ -59,6 +59,8 @@ fun MainScreen(
     onToggleSimulation: () -> Unit = {},
     serverUrl: String = "",
     onServerUrlChanged: (String) -> Unit = {},
+    voiceMuted: Boolean = false,
+    onToggleVoice: () -> Unit = {},
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
     Column(
@@ -66,10 +68,10 @@ fun MainScreen(
             .fillMaxSize()
             .padding(16.dp),
     ) {
-        // Title with deploy canary
+        // Title with deploy canary and voice toggle
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
                 text = stringResource(R.string.app_name),
@@ -77,6 +79,7 @@ fun MainScreen(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
             )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "v5 PURPLE",
                 fontSize = 10.sp,
@@ -86,6 +89,27 @@ fun MainScreen(
                     .background(Color(0xFF9C27B0), RoundedCornerShape(3.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
+            Spacer(modifier = Modifier.weight(1f))
+            // Voice mute/unmute toggle
+            TextButton(onClick = onToggleVoice) {
+                Text(
+                    text = if (voiceMuted) "MUTE" else "VOICE",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (voiceMuted) {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                    } else {
+                        Color(0xFF4CAF50)
+                    },
+                    modifier = Modifier
+                        .background(
+                            if (voiceMuted) MaterialTheme.colorScheme.surfaceVariant
+                            else Color(0xFF4CAF50).copy(alpha = 0.15f),
+                            RoundedCornerShape(8.dp),
+                        )
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -122,14 +146,6 @@ fun MainScreen(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    LegendDot(color = androidx.compose.ui.graphics.Color(0xFFFF9800), label = stringResource(R.string.magnitude))
-                }
-
                 Spacer(modifier = Modifier.height(4.dp))
                 AccelerationGraph(
                     samples = accelSamples,
