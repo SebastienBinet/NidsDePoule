@@ -30,7 +30,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             isDebuggable = true
-            buildConfigField("boolean", "DEV_MODE_DEFAULT", "true")
+            buildConfigField("boolean", "DEV_MODE_DEFAULT", "false")
             buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://nidsdepoule.onrender.com\"")
         }
         release {

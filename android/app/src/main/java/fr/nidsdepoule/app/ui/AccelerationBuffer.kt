@@ -4,15 +4,15 @@ package fr.nidsdepoule.app.ui
  * Circular buffer that holds the last N acceleration samples for the graph.
  * Pure Kotlin — no Android dependencies.
  *
- * Holds 60 seconds of data at 50Hz = 3000 samples.
- * The UI samples this at a lower rate (e.g., every 4th point = ~750 points on screen).
+ * Holds 30 seconds of data at 50Hz = 1500 samples.
+ * Stores magnitude in milli-g (orientation-independent).
+ * The UI samples this at a lower rate (e.g., every 4th point = ~375 points on screen).
  */
-class AccelerationBuffer(private val maxSize: Int = 3000) {
+class AccelerationBuffer(private val maxSize: Int = 1500) {
 
     data class Sample(
         val timestampMs: Long,
-        val verticalMg: Int,
-        val lateralMg: Int,
+        val magnitudeMg: Int,
         val isHit: Boolean = false,
     )
 
@@ -20,16 +20,15 @@ class AccelerationBuffer(private val maxSize: Int = 3000) {
 
     val size: Int get() = samples.size
 
-    fun add(timestampMs: Long, verticalMg: Int, lateralMg: Int) {
+    fun add(timestampMs: Long, magnitudeMg: Int) {
         if (samples.size >= maxSize) {
             samples.removeFirst()
         }
-        samples.addLast(Sample(timestampMs, verticalMg, lateralMg))
+        samples.addLast(Sample(timestampMs, magnitudeMg))
     }
 
     /**
      * Return a snapshot of samples, downsampled by [step] for rendering.
-     * Returns a list of (index, verticalMg, lateralMg) triples.
      */
     fun snapshot(step: Int = 4): List<Sample> {
         val result = mutableListOf<Sample>()

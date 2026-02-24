@@ -127,8 +127,7 @@ fun MainScreen(
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    LegendDot(color = androidx.compose.ui.graphics.Color(0xFFFF9800), label = stringResource(R.string.vertical))
-                    LegendDot(color = androidx.compose.ui.graphics.Color(0xFF2196F3), label = stringResource(R.string.lateral))
+                    LegendDot(color = androidx.compose.ui.graphics.Color(0xFFFF9800), label = stringResource(R.string.magnitude))
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))

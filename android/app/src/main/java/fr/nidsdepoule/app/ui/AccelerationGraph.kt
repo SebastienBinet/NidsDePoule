@@ -10,18 +10,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.dp
-import kotlin.math.abs
 
 /**
- * Compose Canvas that draws two acceleration traces (vertical + lateral)
- * over the last 60 seconds.
+ * Compose Canvas that draws acceleration magnitude over the last 30 seconds.
  *
- * Vertical acceleration: orange trace (shows pothole impacts)
- * Lateral acceleration: blue trace (shows swerving)
+ * Shows a single orange trace of G-force magnitude (orientation-independent).
+ * At rest the value is ~0 G. A pothole hit shows as a spike (e.g., 0.3-1.5 G).
  *
- * The Y axis auto-scales to fit the data. The baseline (1g ≈ 1000mg)
- * is shown as a dashed gray line.
+ * Dashed gray line at 0.3 G marks a reference threshold.
  */
 @Composable
 fun AccelerationGraph(
@@ -39,28 +37,15 @@ fun AccelerationGraph(
         val height = size.height
         val padding = 8f
 
-        // Find Y range
-        var maxAbsVertical = 1500  // minimum range
-        var maxAbsLateral = 500
+        // Find Y range in G (magnitude_mg / 1000)
+        var maxMagnitudeG = 0.5f  // minimum range: 0.5 G
         for (s in samples) {
-            val av = abs(s.verticalMg)
-            val al = abs(s.lateralMg)
-            if (av > maxAbsVertical) maxAbsVertical = av
-            if (al > maxAbsLateral) maxAbsLateral = al
+            val g = s.magnitudeMg / 1000f
+            if (g > maxMagnitudeG) maxMagnitudeG = g
         }
-        val maxY = maxOf(maxAbsVertical, maxAbsLateral).toFloat() * 1.1f
+        maxMagnitudeG *= 1.1f  // 10% headroom
 
-        // Draw baseline (1g = 1000mg)
-        val baselineY = height - padding - ((1000f / maxY) * (height - 2 * padding))
-        drawDashedLine(
-            color = Color.Gray.copy(alpha = 0.5f),
-            start = Offset(padding, baselineY),
-            end = Offset(width - padding, baselineY),
-            dashLength = 8f,
-            gapLength = 6f,
-        )
-
-        // Draw zero line
+        // Draw zero line at bottom
         val zeroY = height - padding
         drawLine(
             color = Color.Gray.copy(alpha = 0.3f),
@@ -69,23 +54,35 @@ fun AccelerationGraph(
             strokeWidth = 1f,
         )
 
-        // Draw vertical acceleration trace (orange)
-        drawTrace(
-            samples = samples,
-            extractValue = { it.verticalMg },
-            color = Color(0xFFFF9800),
-            maxY = maxY,
-            width = width,
-            height = height,
-            padding = padding,
-        )
+        // Draw reference line at 0.3 G
+        val refG = 0.3f
+        if (refG < maxMagnitudeG) {
+            val refY = height - padding - (refG / maxMagnitudeG) * (height - 2 * padding)
+            drawDashedLine(
+                color = Color.Gray.copy(alpha = 0.5f),
+                start = Offset(padding, refY),
+                end = Offset(width - padding, refY),
+                dashLength = 8f,
+                gapLength = 6f,
+            )
+            // Label "0.3G"
+            drawContext.canvas.nativeCanvas.drawText(
+                "0.3G",
+                padding + 2,
+                refY - 4,
+                android.graphics.Paint().apply {
+                    color = android.graphics.Color.GRAY
+                    textSize = 22f
+                    isAntiAlias = true
+                }
+            )
+        }
 
-        // Draw lateral acceleration trace (blue)
-        drawTrace(
+        // Draw magnitude trace (orange)
+        drawMagnitudeTrace(
             samples = samples,
-            extractValue = { it.lateralMg },
-            color = Color(0xFF2196F3),
-            maxY = maxY,
+            color = Color(0xFFFF9800),
+            maxG = maxMagnitudeG,
             width = width,
             height = height,
             padding = padding,
@@ -94,7 +91,7 @@ fun AccelerationGraph(
         // Draw hit markers (red circles + vertical lines)
         drawHitMarkers(
             samples = samples,
-            maxY = maxY,
+            maxG = maxMagnitudeG,
             width = width,
             height = height,
             padding = padding,
@@ -102,11 +99,10 @@ fun AccelerationGraph(
     }
 }
 
-private fun DrawScope.drawTrace(
+private fun DrawScope.drawMagnitudeTrace(
     samples: List<AccelerationBuffer.Sample>,
-    extractValue: (AccelerationBuffer.Sample) -> Int,
     color: Color,
-    maxY: Float,
+    maxG: Float,
     width: Float,
     height: Float,
     padding: Float,
@@ -120,8 +116,8 @@ private fun DrawScope.drawTrace(
 
     for ((i, sample) in samples.withIndex()) {
         val x = padding + i * xStep
-        val value = abs(extractValue(sample)).toFloat()
-        val y = height - padding - (value / maxY) * usableHeight
+        val g = sample.magnitudeMg / 1000f
+        val y = height - padding - (g / maxG) * usableHeight
 
         if (i == 0) {
             path.moveTo(x, y)
@@ -139,7 +135,7 @@ private fun DrawScope.drawTrace(
 
 private fun DrawScope.drawHitMarkers(
     samples: List<AccelerationBuffer.Sample>,
-    maxY: Float,
+    maxG: Float,
     width: Float,
     height: Float,
     padding: Float,
@@ -155,7 +151,8 @@ private fun DrawScope.drawHitMarkers(
         if (!sample.isHit) continue
 
         val x = padding + i * xStep
-        val verticalY = height - padding - (abs(sample.verticalMg).toFloat() / maxY) * usableHeight
+        val g = sample.magnitudeMg / 1000f
+        val markerY = height - padding - (g / maxG) * usableHeight
 
         // Translucent vertical line spanning the full graph height
         drawLine(
@@ -165,11 +162,11 @@ private fun DrawScope.drawHitMarkers(
             strokeWidth = 3f,
         )
 
-        // Red circle at the vertical acceleration value
+        // Red circle at the magnitude value
         drawCircle(
             color = hitColor,
             radius = 6f,
-            center = Offset(x, verticalY),
+            center = Offset(x, markerY),
         )
     }
 }
