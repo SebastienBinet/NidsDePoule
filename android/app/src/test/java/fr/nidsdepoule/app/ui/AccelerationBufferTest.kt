@@ -17,38 +17,38 @@ class AccelerationBufferTest {
     @Test
     fun `test add and retrieve samples`() {
         val buffer = AccelerationBuffer(maxSize = 100)
-        buffer.add(0, 1000, 50)
-        buffer.add(20, 1100, 60)
-        buffer.add(40, 900, 40)
+        buffer.add(0, 1000)
+        buffer.add(20, 1100)
+        buffer.add(40, 900)
 
         assertEquals(3, buffer.size)
 
         val snap = buffer.snapshot(step = 1)
         assertEquals(3, snap.size)
-        assertEquals(1000, snap[0].verticalMg)
-        assertEquals(1100, snap[1].verticalMg)
+        assertEquals(1000, snap[0].magnitudeMg)
+        assertEquals(1100, snap[1].magnitudeMg)
     }
 
     @Test
     fun `test circular buffer wraps`() {
         val buffer = AccelerationBuffer(maxSize = 5)
         for (i in 0 until 10) {
-            buffer.add(i.toLong() * 20, 1000 + i, 50)
+            buffer.add(i.toLong() * 20, 1000 + i)
         }
 
         assertEquals(5, buffer.size)
 
         val snap = buffer.snapshot(step = 1)
         // Should contain the last 5 entries (i=5..9)
-        assertEquals(1005, snap[0].verticalMg)
-        assertEquals(1009, snap[4].verticalMg)
+        assertEquals(1005, snap[0].magnitudeMg)
+        assertEquals(1009, snap[4].magnitudeMg)
     }
 
     @Test
     fun `test downsampling`() {
         val buffer = AccelerationBuffer(maxSize = 100)
         for (i in 0 until 20) {
-            buffer.add(i.toLong() * 20, 1000, 50)
+            buffer.add(i.toLong() * 20, 1000)
         }
 
         val step4 = buffer.snapshot(step = 4)
@@ -61,9 +61,9 @@ class AccelerationBufferTest {
     @Test
     fun `test markLastAsHit flags last sample`() {
         val buffer = AccelerationBuffer(maxSize = 100)
-        buffer.add(0, 1000, 50)
-        buffer.add(20, 1100, 60)
-        buffer.add(40, 2500, 40)
+        buffer.add(0, 1000)
+        buffer.add(20, 1100)
+        buffer.add(40, 2500)
 
         buffer.markLastAsHit()
 
@@ -82,20 +82,14 @@ class AccelerationBufferTest {
 
     @Test
     fun `test hit flag preserved through downsampling`() {
-        val buffer = AccelerationBuffer(maxSize = 100)
-        for (i in 0 until 8) {
-            buffer.add(i.toLong() * 20, 1000, 50)
-        }
-        // Mark sample at index 4 (which aligns with step=4 downsampling)
-        // Add samples 0-3, then sample 4 with hit
         val buffer2 = AccelerationBuffer(maxSize = 100)
         for (i in 0 until 4) {
-            buffer2.add(i.toLong() * 20, 1000, 50)
+            buffer2.add(i.toLong() * 20, 1000)
         }
-        buffer2.add(80, 2500, 50)
+        buffer2.add(80, 2500)
         buffer2.markLastAsHit()
         for (i in 5 until 8) {
-            buffer2.add(i.toLong() * 20, 1000, 50)
+            buffer2.add(i.toLong() * 20, 1000)
         }
 
         val snap = buffer2.snapshot(step = 1)
@@ -107,8 +101,8 @@ class AccelerationBufferTest {
     @Test
     fun `test clear`() {
         val buffer = AccelerationBuffer()
-        buffer.add(0, 1000, 50)
-        buffer.add(20, 1100, 60)
+        buffer.add(0, 1000)
+        buffer.add(20, 1100)
         buffer.clear()
 
         assertEquals(0, buffer.size)
