@@ -7,13 +7,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
-import fr.nidsdepoule.app.detection.AccelReading
 import fr.nidsdepoule.app.detection.CarMountDetector
 import fr.nidsdepoule.app.detection.HitDetectionStrategy
 import fr.nidsdepoule.app.detection.HitEvent
 import fr.nidsdepoule.app.detection.ReportSource
 import fr.nidsdepoule.app.detection.ThresholdHitDetector
-import kotlin.math.abs
 import fr.nidsdepoule.app.reporting.DataUsageTracker
 import fr.nidsdepoule.app.reporting.HitReportData
 import fr.nidsdepoule.app.reporting.HitReporter
@@ -27,15 +25,18 @@ import fr.nidsdepoule.app.sensor.LocationCallback
 import fr.nidsdepoule.app.sensor.LocationReading
 import fr.nidsdepoule.app.sensor.LocationSource
 import fr.nidsdepoule.app.ui.AccelerationBuffer
+import fr.nidsdepoule.app.ui.VoiceFeedback
 import android.os.Handler
 import android.os.Looper
 import java.util.UUID
+import kotlin.math.sqrt
 
 /**
  * ViewModel that connects all modules and exposes observable state to the UI.
  *
  * Module wiring:
- *   Accelerometer → HitDetector + CarMountDetector + AccelBuffer
+ *   Accelerometer (TYPE_LINEAR_ACCELERATION) → magnitude → HitDetector + AccelBuffer
+ *   Accelerometer → CarMountDetector (stability detection)
  *   GPS → LocationTracker → (bearing before/after computation)
  *   HitDetector + LocationTracker → HitReporter → Server
  */
@@ -53,11 +54,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         application.packageManager.getPackageInfo(application.packageName, 0).versionName ?: "0.1.0"
     } catch (_: Exception) { "0.1.0" }
 
-    // --- Core modules (pure Kotlin, no Android deps) ---
+    // --- Core modules ---
     private val hitDetector: HitDetectionStrategy = ThresholdHitDetector()
     private val carMountDetector = CarMountDetector()
     val accelBuffer = AccelerationBuffer()
     private val dataUsageTracker = DataUsageTracker()
+    private val voiceFeedback = VoiceFeedback(application)
 
     // --- Platform adapters ---
     private val accelerometer: AccelerometerSource = AndroidAccelerometer(application)
@@ -115,6 +117,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** True when circuit simulation is running instead of real GPS. */
     var isSimulating by mutableStateOf(false)
         private set
+    /** When true, voice feedback is muted. Default: unmuted (voice active). */
+    var voiceMuted by mutableStateOf(false)
+        private set
 
     // Dev mode tap counter
     private var devModeTapCount = 0
@@ -142,21 +147,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val savedMonthStart = prefs.getLong("month_start_ms", 0)
         dataUsageTracker.restoreMonth(savedMonthBytes, savedMonthStart)
 
-        // Start accelerometer
-        accelerometer.start(AccelerometerCallback { timestamp, x, _, z ->
-            // z = vertical (up-down), x = lateral (left-right)
-            val verticalMg = z
-            val lateralMg = x
+        // Start accelerometer (TYPE_LINEAR_ACCELERATION — gravity already removed)
+        accelerometer.start(AccelerometerCallback { timestamp, x, y, z ->
+            // Compute orientation-independent magnitude: sqrt(x² + y² + z²)
+            val magnitudeMg = sqrt((x.toLong() * x + y.toLong() * y + z.toLong() * z).toFloat()).toInt()
 
-            // Feed all consumers
-            accelBuffer.add(timestamp, verticalMg, lateralMg)
-            carMountDetector.processReading(x, 0, z)
+            // Feed acceleration buffer (for graph display)
+            accelBuffer.add(timestamp, magnitudeMg)
+
+            // Feed car mount detector (uses raw linear accel for stability check)
+            carMountDetector.processReading(x, y, z)
             isMounted = carMountDetector.isMounted
 
             // Only detect hits when mounted (or in dev mode)
             if (isMounted || devModeEnabled) {
                 val speed = lastLocation?.speedMps ?: 0f
-                val event = hitDetector.processReading(timestamp, verticalMg, lateralMg, speed)
+                val event = hitDetector.processReading(timestamp, magnitudeMg, speed)
 
                 if (event != null) {
                     hitsDetected++
@@ -199,6 +205,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isRunning = false
         accelerometer.stop()
         activeLocationSource.stop()
+        voiceFeedback.shutdown()
 
         // Persist month data
         prefs.edit()
@@ -226,6 +233,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun toggleVoice() {
+        voiceMuted = !voiceMuted
+    }
+
     /** Toggle between real GPS and cemetery circuit simulation. */
     fun toggleSimulation() {
         if (!isRunning) return
@@ -240,7 +251,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Manual report buttons ---
 
-    /** "Hiii !" — user visually spots a small/medium pothole. */
+    /** "iiii !" — user visually spots a small/medium pothole. */
     fun onReportVisualSmall() {
         val location = lastLocation ?: return
         val event = HitEvent(
@@ -256,10 +267,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             source = ReportSource.VISUAL_SMALL,
         )
         hitsDetected++
-        sendReport(event, location, "Hiii !")
+        sendReport(event, location, "iiii !")
     }
 
-    /** "HIIIIIII !!!" — user visually spots a big pothole. */
+    /** "iiiiiiiii !!!" — user visually spots a big pothole. */
     fun onReportVisualBig() {
         val location = lastLocation ?: return
         val event = HitEvent(
@@ -275,7 +286,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             source = ReportSource.VISUAL_BIG,
         )
         hitsDetected++
-        sendReport(event, location, "HIIIIIII !!!")
+        sendReport(event, location, "iiiiiiiii !!!")
     }
 
     /** "Ouch !" — user just hit a small/medium pothole; capture last 5s of accel data. */
@@ -310,36 +321,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        // Find peak in the captured window.
+        // Find peak magnitude in the captured window.
         var peakIdx = 0
-        var peakV = 0
+        var peakMag = 0
         for ((i, r) in readings.withIndex()) {
-            val av = abs(r.verticalMg)
-            if (av > peakV) { peakV = av; peakIdx = i }
+            if (r.magnitudeMg > peakMag) { peakMag = r.magnitudeMg; peakIdx = i }
         }
-        val peakL = abs(readings[peakIdx].lateralMg)
 
         // Extract waveform (up to 150 samples centered on peak).
         val half = 75
         val start = maxOf(0, peakIdx - half)
         val end = minOf(readings.size, peakIdx + half)
-        val wV = readings.subList(start, end).map { it.verticalMg }
-        val wL = readings.subList(start, end).map { it.lateralMg }
+        val waveform = readings.subList(start, end).map { it.magnitudeMg }
 
-        // Baseline = median absolute vertical.
-        val sorted = readings.map { abs(it.verticalMg) }.sorted()
+        // Baseline = median magnitude.
+        val sorted = readings.map { it.magnitudeMg }.sorted()
         val baseline = sorted[sorted.size / 2]
-        val ratio = if (baseline > 0) (peakV.toDouble() / baseline * 100).toInt() else 0
+        val ratio = if (baseline > 0) (peakMag.toDouble() / baseline * 100).toInt() else 0
         val duration = (readings.last().timestamp - readings.first().timestamp).toInt()
 
         return HitEvent(
             timestampMs = readings[peakIdx].timestamp,
-            peakVerticalMg = peakV,
-            peakLateralMg = peakL,
+            peakVerticalMg = peakMag,  // magnitude sent as "vertical" for wire compat
+            peakLateralMg = 0,
             durationMs = duration,
             severity = userSeverity,
-            waveformVertical = wV,
-            waveformLateral = wL,
+            waveformVertical = waveform,
+            waveformLateral = emptyList(),
             baselineMg = baseline,
             peakToBaselineRatio = ratio,
             source = source,
@@ -368,8 +376,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onHitDetected(event: HitEvent) {
-        val location = lastLocation ?: return  // No GPS → can't report
+        val location = lastLocation ?: return  // No GPS -> can't report
         triggerHitFlash()
+
+        // Voice feedback
+        if (!voiceMuted) {
+            voiceFeedback.speakHit(event.severity)
+        }
 
         val bearingBefore = computeBearingBefore()
         val bearingAfter = location.bearingDeg  // Use current bearing as estimate for "after"

@@ -9,10 +9,10 @@ enum class ReportSource(val wire: String) {
     /** Automatic accelerometer threshold detection. */
     AUTO("auto"),
 
-    /** User visually spotted a small/medium pothole ("Hiii !"). */
+    /** User visually spotted a small/medium pothole ("iiii !"). */
     VISUAL_SMALL("visual_small"),
 
-    /** User visually spotted a big pothole ("HIIIIIII !!!"). */
+    /** User visually spotted a big pothole ("iiiiiiiii !!!"). */
     VISUAL_BIG("visual_big"),
 
     /** User just hit a small/medium pothole ("Ouch !") — accelerometer captured. */
@@ -36,7 +36,13 @@ data class HitEvent(
 )
 
 interface HitDetectionStrategy {
-    fun processReading(timestamp: Long, verticalAccelMg: Int, lateralAccelMg: Int, speedMps: Float): HitEvent?
+    /**
+     * Process an acceleration reading.
+     * @param timestamp monotonic timestamp in ms
+     * @param magnitudeMg acceleration magnitude in milli-g (orientation-independent)
+     * @param speedMps current GPS speed
+     */
+    fun processReading(timestamp: Long, magnitudeMg: Int, speedMps: Float): HitEvent?
     fun reset()
 
     /** Return the last [durationMs] worth of accelerometer readings (for manual "Ouch"/"AYOYE" capture). */
