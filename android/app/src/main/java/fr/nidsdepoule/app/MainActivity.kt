@@ -73,6 +73,10 @@ class MainActivity : ComponentActivity() {
                         onServerUrlChanged = { viewModel.updateServerUrl(it) },
                         voiceMuted = viewModel.voiceMuted,
                         onToggleVoice = { viewModel.toggleVoice() },
+                        thresholdFactor = viewModel.thresholdFactor,
+                        onThresholdFactorChanged = { viewModel.updateThresholdFactor(it) },
+                        minMagnitudeMg = viewModel.minMagnitudeMg,
+                        onMinMagnitudeChanged = { viewModel.updateMinMagnitudeMg(it) },
                     )
                 }
             }

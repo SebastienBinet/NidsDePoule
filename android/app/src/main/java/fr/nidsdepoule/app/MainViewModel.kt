@@ -3,6 +3,7 @@ package fr.nidsdepoule.app
 import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -55,7 +56,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     } catch (_: Exception) { "0.1.0" }
 
     // --- Core modules ---
-    private val hitDetector: HitDetectionStrategy = ThresholdHitDetector()
+    private val hitDetector = ThresholdHitDetector()
     private val carMountDetector = CarMountDetector()
     val accelBuffer = AccelerationBuffer()
     private val dataUsageTracker = DataUsageTracker()
@@ -119,6 +120,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     /** When true, voice feedback is muted. Default: unmuted (voice active). */
     var voiceMuted by mutableStateOf(false)
+        private set
+
+    // --- Dev-mode tuning: detection sensitivity ---
+    /** Relative threshold factor (baseline × factor). Higher = less sensitive. */
+    var thresholdFactor by mutableDoubleStateOf(ThresholdHitDetector.DEFAULT_THRESHOLD_FACTOR)
+        private set
+    /** Absolute minimum magnitude in milli-g. Higher = less sensitive. */
+    var minMagnitudeMg by mutableIntStateOf(ThresholdHitDetector.DEFAULT_MIN_MAGNITUDE_MG)
         private set
 
     // Dev mode tap counter
@@ -235,6 +244,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleVoice() {
         voiceMuted = !voiceMuted
+    }
+
+    fun updateThresholdFactor(value: Double) {
+        thresholdFactor = value
+        hitDetector.thresholdFactor = value
+    }
+
+    fun updateMinMagnitudeMg(value: Int) {
+        minMagnitudeMg = value
+        hitDetector.minMagnitudeMg = value
     }
 
     /** Toggle between real GPS and cemetery circuit simulation. */

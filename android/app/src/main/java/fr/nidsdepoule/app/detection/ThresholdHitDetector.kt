@@ -11,11 +11,22 @@ data class AccelReading(
 
 class ThresholdHitDetector(
     private val bufferSize: Int = 1500,
-    private val thresholdFactor: Double = 3.0,
-    private val minMagnitudeMg: Int = 150,  // minimum absolute magnitude to trigger (0.15G)
+    thresholdFactor: Double = DEFAULT_THRESHOLD_FACTOR,
+    minMagnitudeMg: Int = DEFAULT_MIN_MAGNITUDE_MG,
     private val waveformSamples: Int = 150,
     private val cooldownMs: Long = 500
 ) : HitDetectionStrategy {
+
+    /** Relative multiplier: a reading must exceed baseline × this factor to trigger. */
+    var thresholdFactor: Double = thresholdFactor
+
+    /** Absolute floor in milli-g: a reading must also exceed this value to trigger. */
+    var minMagnitudeMg: Int = minMagnitudeMg
+
+    companion object {
+        const val DEFAULT_THRESHOLD_FACTOR = 3.0
+        const val DEFAULT_MIN_MAGNITUDE_MG = 150
+    }
 
     private val buffer = mutableListOf<AccelReading>()
     private var lastHitTimestamp: Long = 0
