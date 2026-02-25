@@ -99,6 +99,10 @@ class ThresholdHitDetector(
         )
     }
 
+    /** Current rolling baseline (median magnitude), or 0 if not enough samples. */
+    val currentBaselineMg: Int
+        get() = if (buffer.size >= 10) computeBaseline() else 0
+
     override fun reset() {
         buffer.clear()
         lastHitTimestamp = 0

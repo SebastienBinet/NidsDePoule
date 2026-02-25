@@ -65,6 +65,7 @@ fun MainScreen(
     onThresholdFactorChanged: (Double) -> Unit = {},
     minMagnitudeMg: Int = 150,
     onMinMagnitudeChanged: (Int) -> Unit = {},
+    currentBaselineMg: Int = 0,
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
     Column(
@@ -205,6 +206,7 @@ fun MainScreen(
                 onThresholdFactorChanged = onThresholdFactorChanged,
                 minMagnitudeMg = minMagnitudeMg,
                 onMinMagnitudeChanged = onMinMagnitudeChanged,
+                currentBaselineMg = currentBaselineMg,
             )
         }
 
@@ -542,6 +544,7 @@ private fun SensitivitySliders(
     onThresholdFactorChanged: (Double) -> Unit,
     minMagnitudeMg: Int,
     onMinMagnitudeChanged: (Int) -> Unit,
+    currentBaselineMg: Int = 0,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -556,6 +559,16 @@ private fun SensitivitySliders(
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Live rolling baseline + computed trigger threshold
+            val triggerAt = (currentBaselineMg * thresholdFactor).toInt()
+            Text(
+                text = "baseline = $currentBaselineMg mg  \u2192  trigger at ${maxOf(triggerAt, minMagnitudeMg)} mg",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFFFF6D00),
             )
             Spacer(modifier = Modifier.height(8.dp))
 

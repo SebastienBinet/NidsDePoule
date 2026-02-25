@@ -129,6 +129,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Absolute minimum magnitude in milli-g. Higher = less sensitive. */
     var minMagnitudeMg by mutableIntStateOf(ThresholdHitDetector.DEFAULT_MIN_MAGNITUDE_MG)
         private set
+    /** Current rolling baseline from the detector (median magnitude in milli-g). */
+    var currentBaselineMg by mutableIntStateOf(0)
+        private set
 
     // Dev mode tap counter
     private var devModeTapCount = 0
@@ -183,6 +186,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
             if (accelBuffer.size % 10 == 0) {
                 accelSamples = accelBuffer.snapshot(step = 4)
+                currentBaselineMg = hitDetector.currentBaselineMg
             }
         })
 

@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
                         onThresholdFactorChanged = { viewModel.updateThresholdFactor(it) },
                         minMagnitudeMg = viewModel.minMagnitudeMg,
                         onMinMagnitudeChanged = { viewModel.updateMinMagnitudeMg(it) },
+                        currentBaselineMg = viewModel.currentBaselineMg,
                     )
                 }
             }
