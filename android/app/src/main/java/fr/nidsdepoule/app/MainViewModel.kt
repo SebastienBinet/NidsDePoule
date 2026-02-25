@@ -155,20 +155,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Feed acceleration buffer (for graph display)
             accelBuffer.add(timestamp, magnitudeMg)
 
-            // Feed car mount detector (uses raw linear accel for stability check)
+            // Feed car mount detector (for status display)
             carMountDetector.processReading(x, y, z)
             isMounted = carMountDetector.isMounted
 
-            // Only detect hits when mounted (or in dev mode)
-            if (isMounted || devModeEnabled) {
-                val speed = lastLocation?.speedMps ?: 0f
-                val event = hitDetector.processReading(timestamp, magnitudeMg, speed)
+            // Always run hit detection — the minimum magnitude floor in
+            // ThresholdHitDetector prevents false positives from hand movement.
+            // Mount status is shown as an indicator but doesn't gate detection.
+            val speed = lastLocation?.speedMps ?: 0f
+            val event = hitDetector.processReading(timestamp, magnitudeMg, speed)
 
-                if (event != null) {
-                    hitsDetected++
-                    accelBuffer.markLastAsHit()
-                    onHitDetected(event)
-                }
+            if (event != null) {
+                hitsDetected++
+                accelBuffer.markLastAsHit()
+                onHitDetected(event)
             }
 
             // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
@@ -356,6 +356,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun sendReport(event: HitEvent, location: LocationReading, flashText: String = "HIT!") {
         triggerHitFlash(flashText)
+        if (!voiceMuted) {
+            voiceFeedback.speakHit(event.severity)
+        }
         val bearingBefore = computeBearingBefore()
         val bearingAfter = location.bearingDeg
         val report = HitReportData.create(event, location, bearingBefore, bearingAfter)
@@ -377,18 +380,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun onHitDetected(event: HitEvent) {
         val location = lastLocation ?: return  // No GPS -> can't report
-        triggerHitFlash()
-
-        // Voice feedback
-        if (!voiceMuted) {
-            voiceFeedback.speakHit(event.severity)
-        }
-
-        val bearingBefore = computeBearingBefore()
-        val bearingAfter = location.bearingDeg  // Use current bearing as estimate for "after"
-
-        val report = HitReportData.create(event, location, bearingBefore, bearingAfter)
-        hitReporter.report(report)
+        sendReport(event, location)
     }
 
     /**

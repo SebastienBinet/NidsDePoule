@@ -156,34 +156,6 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Reporting mode — greyed out single line
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = "${stringResource(R.string.reporting_mode)}: ${stringResource(R.string.mode_realtime)}",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-            )
-            Text(
-                text = stringResource(R.string.future_feature),
-                fontSize = 9.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                modifier = Modifier
-                    .background(
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        RoundedCornerShape(3.dp),
-                    )
-                    .padding(horizontal = 4.dp, vertical = 1.dp),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         // Data usage
         DataUsageCard(
             kbLastMinute = kbLastMinute,

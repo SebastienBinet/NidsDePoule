@@ -12,6 +12,7 @@ data class AccelReading(
 class ThresholdHitDetector(
     private val bufferSize: Int = 1500,
     private val thresholdFactor: Double = 3.0,
+    private val minMagnitudeMg: Int = 150,  // minimum absolute magnitude to trigger (0.15G)
     private val waveformSamples: Int = 150,
     private val cooldownMs: Long = 500
 ) : HitDetectionStrategy {
@@ -43,10 +44,12 @@ class ThresholdHitDetector(
         // Compute baseline as rolling median of magnitude
         val baseline = computeBaseline()
 
-        // Detect hit when current magnitude exceeds threshold
+        // Detect hit when current magnitude exceeds BOTH:
+        // 1. A relative threshold (baseline × factor) — adapts to road conditions
+        // 2. An absolute minimum floor — prevents false positives from noise
         val threshold = baseline * thresholdFactor
 
-        if (magnitudeMg < threshold) {
+        if (magnitudeMg < threshold || magnitudeMg < minMagnitudeMg) {
             return null
         }
 
