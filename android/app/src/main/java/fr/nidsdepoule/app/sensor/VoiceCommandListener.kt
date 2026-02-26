@@ -30,13 +30,13 @@ class VoiceCommandListener(private val context: Context) {
         // Keywords that trigger an "Almost" report (seeing a pothole ahead).
         private val ALMOST_KEYWORDS = listOf(
             "attention", "il y en a", "regarde", "trou",
-            "pothole", "watch", "look",
+            "ouf", "iiiii", "pothole", "watch", "look",
         )
 
         // Keywords that trigger a "Hit" report (just drove over one).
         private val HIT_KEYWORDS = listOf(
             "ayoye", "ouch", "aille", "aie", "aïe",
-            "merde", "tabarnak", "shit", "ow",
+            "merde", "tabarnak", "shit", "ow", "bang",
         )
     }
 
