@@ -87,6 +87,8 @@ class VoiceCommandListener(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             // Short silence = restart quickly for continuous listening
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+            // Suppress the system "beep" sound on each listen cycle
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
         }
         try {
             recognizer?.startListening(intent)
@@ -132,11 +134,12 @@ class VoiceCommandListener(private val context: Context) {
         override fun onBufferReceived(buffer: ByteArray?) {}
 
         override fun onEndOfSpeech() {
-            isListening = false
+            // Keep isListening = true while running — we'll restart immediately
+            // in onResults/onError. Only drop it when truly stopped.
+            if (!running) isListening = false
         }
 
         override fun onError(error: Int) {
-            isListening = false
             // Common errors: ERROR_NO_MATCH (7), ERROR_SPEECH_TIMEOUT (6)
             // Restart listening unless we've been stopped
             if (running) {
@@ -144,6 +147,8 @@ class VoiceCommandListener(private val context: Context) {
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     startListening()
                 }, delay)
+            } else {
+                isListening = false
             }
         }
 
