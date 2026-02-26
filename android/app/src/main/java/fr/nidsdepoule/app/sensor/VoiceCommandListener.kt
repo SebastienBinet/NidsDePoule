@@ -1,43 +1,51 @@
 package fr.nidsdepoule.app.sensor
 
 import android.content.Context
-import android.content.Intent
-import android.os.Bundle
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import java.util.Locale
+import fr.nidsdepoule.app.sensor.audio.AudioCapture
+import fr.nidsdepoule.app.sensor.audio.DtwMatcher
+import fr.nidsdepoule.app.sensor.audio.MfccExtractor
+import fr.nidsdepoule.app.sensor.audio.VoiceProfileStore
 
 /**
  * Continuous voice command listener for hands-free pothole reporting.
  *
- * Listens for spoken keywords and fires callbacks:
- *   - "Almost" sounds → onAlmost  (e.g. "iiiii", "attention", "il y en a")
- *   - "Hit" sounds    → onHit     (e.g. "ayoye", "ouch", "aille", "aïe")
+ * Uses raw audio capture + MFCC feature extraction + DTW matching
+ * against user-recorded templates. No speech-to-text — works with
+ * exclamations, non-words, and any language.
  *
- * Uses Android's built-in SpeechRecognizer. Requires RECORD_AUDIO permission.
- * Automatically restarts listening after each recognition result or error.
+ * Listens for spoken keywords and fires callbacks:
+ *   - "Almost" sounds → onAlmost  (e.g. "iiiii", "attention", "ouf")
+ *   - "Hit" sounds    → onHit     (e.g. "ayoye", "ouch", "merde")
  */
 class VoiceCommandListener(private val context: Context) {
 
     companion object {
         private const val TAG = "VoiceCommandListener"
 
+        /** DTW distance threshold — below this = match. */
+        private const val MATCH_THRESHOLD = 45f
+
+        /** Minimum time between triggers to avoid double-fires. */
+        private const val COOLDOWN_MS = 2000L
+
         // Keywords that trigger an "Almost" report (seeing a pothole ahead).
-        private val ALMOST_KEYWORDS = listOf(
-            "attention", "il y en a", "regarde", "trou",
-            "ouf", "iiiii", "pothole", "watch", "look",
+        val ALMOST_KEYWORDS = listOf(
+            "attention", "trou", "regarde", "ouf", "iiiii", "il y en a",
         )
 
         // Keywords that trigger a "Hit" report (just drove over one).
-        private val HIT_KEYWORDS = listOf(
-            "ayoye", "ouch", "aille", "aie", "aïe",
-            "merde", "tabarnak", "shit", "ow", "bang",
+        val HIT_KEYWORDS = listOf(
+            "ayoye", "ouch", "aille", "merde", "shit", "bang",
         )
+
+        val ALL_KEYWORDS: List<String> = ALMOST_KEYWORDS + HIT_KEYWORDS
     }
 
     /** Callback when an "Almost" voice command is detected. */
@@ -50,122 +58,118 @@ class VoiceCommandListener(private val context: Context) {
     var isListening by mutableStateOf(false)
         private set
 
-    private var recognizer: SpeechRecognizer? = null
+    /**
+     * Dev-mode observable: real-time match scores for each keyword.
+     * Maps keyword name → similarity score in [0, 1]. Updated on every speech segment.
+     */
+    val matchScores = mutableStateMapOf<String, Float>()
+
+    private val audioCapture = AudioCapture()
+    private val mfccExtractor = MfccExtractor()
+    private val profileStore = VoiceProfileStore(context)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Loaded profiles: keyword → list of MFCC templates. */
+    private var profiles: Map<String, List<Array<FloatArray>>> = emptyMap()
     private var running = false
+    private var lastTriggerMs = 0L
+
+    /** Whether any voice profiles have been trained. */
+    val hasProfiles: Boolean get() = profiles.isNotEmpty()
 
     /**
      * Start continuous listening. Requires RECORD_AUDIO permission to already be granted.
      */
     fun start() {
         if (running) return
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            Log.w(TAG, "SpeechRecognizer not available on this device")
-            return
-        }
         running = true
-        recognizer = SpeechRecognizer.createSpeechRecognizer(context)
-        recognizer?.setRecognitionListener(listener)
-        startListening()
+
+        // Load trained voice profiles
+        reloadProfiles()
+
+        // Initialize match scores
+        for (kw in ALL_KEYWORDS) {
+            matchScores[kw] = 0f
+        }
+
+        // Wire audio capture callbacks
+        audioCapture.onSpeechSegment = { segment ->
+            processSpeechSegment(segment)
+        }
+
+        audioCapture.start()
+        isListening = audioCapture.isRunning
+        Log.i(TAG, "Voice listener started with ${profiles.size} trained keywords")
     }
 
     fun stop() {
         running = false
+        audioCapture.stop()
         isListening = false
-        try {
-            recognizer?.cancel()
-            recognizer?.destroy()
-        } catch (_: Exception) { }
-        recognizer = null
     }
 
-    private fun startListening() {
-        if (!running) return
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.CANADA_FRENCH.toLanguageTag())
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            // Short silence = restart quickly for continuous listening
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
-            // Suppress the system "beep" sound on each listen cycle
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-        }
-        try {
-            recognizer?.startListening(intent)
-            isListening = true
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to start listening", e)
-            isListening = false
-            // Retry after a short delay
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                startListening()
-            }, 2000)
-        }
+    /** Reload profiles from disk (call after training). */
+    fun reloadProfiles() {
+        profiles = profileStore.loadAllProfiles()
+        Log.d(TAG, "Loaded ${profiles.size} keyword profiles: ${profiles.keys}")
     }
 
-    private fun processResults(texts: List<String>) {
-        for (text in texts) {
-            val lower = text.lowercase()
-            Log.d(TAG, "Heard: '$lower'")
+    /** Get the profile store for training. */
+    fun getProfileStore(): VoiceProfileStore = profileStore
 
-            // Check Hit keywords first (more urgent — just drove over one)
-            if (HIT_KEYWORDS.any { lower.contains(it) }) {
-                Log.i(TAG, "Hit command detected: '$lower'")
-                onHit?.invoke()
+    /** Get the MFCC extractor (shared with training). */
+    fun getMfccExtractor(): MfccExtractor = mfccExtractor
+
+    /**
+     * Process a detected speech segment: extract MFCC, match against profiles.
+     */
+    private fun processSpeechSegment(pcm: ShortArray) {
+        if (profiles.isEmpty()) return
+
+        val mfcc = mfccExtractor.extract(pcm)
+        if (mfcc.isEmpty()) return
+
+        // Compute DTW distances for all trained keywords
+        val distances = DtwMatcher.matchAll(mfcc, profiles)
+
+        // Update match scores for dev overlay (on main thread)
+        val scores = mutableMapOf<String, Float>()
+        for (kw in ALL_KEYWORDS) {
+            val dist = distances[kw] ?: Float.MAX_VALUE
+            scores[kw] = DtwMatcher.similarity(dist, MATCH_THRESHOLD)
+        }
+
+        mainHandler.post {
+            for ((kw, score) in scores) {
+                matchScores[kw] = score
+            }
+        }
+
+        // Find the best matching keyword
+        val bestKw = distances.minByOrNull { it.value } ?: return
+        val bestDist = bestKw.value
+        val bestName = bestKw.key
+
+        Log.d(TAG, "Best match: '$bestName' (dist=${"%.1f".format(bestDist)}, " +
+                "threshold=$MATCH_THRESHOLD)")
+
+        if (bestDist < MATCH_THRESHOLD) {
+            val now = System.currentTimeMillis()
+            if (now - lastTriggerMs < COOLDOWN_MS) {
+                Log.d(TAG, "Cooldown — ignoring match")
                 return
             }
+            lastTriggerMs = now
 
-            // Check Almost keywords (seeing one ahead)
-            if (ALMOST_KEYWORDS.any { lower.contains(it) }) {
-                Log.i(TAG, "Almost command detected: '$lower'")
-                onAlmost?.invoke()
-                return
+            Log.i(TAG, "Voice command: '$bestName' (dist=${"%.1f".format(bestDist)})")
+
+            mainHandler.post {
+                if (bestName in ALMOST_KEYWORDS) {
+                    onAlmost?.invoke()
+                } else if (bestName in HIT_KEYWORDS) {
+                    onHit?.invoke()
+                }
             }
         }
-    }
-
-    private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {
-            isListening = true
-        }
-
-        override fun onBeginningOfSpeech() {}
-        override fun onRmsChanged(rmsdB: Float) {}
-        override fun onBufferReceived(buffer: ByteArray?) {}
-
-        override fun onEndOfSpeech() {
-            // Keep isListening = true while running — we'll restart immediately
-            // in onResults/onError. Only drop it when truly stopped.
-            if (!running) isListening = false
-        }
-
-        override fun onError(error: Int) {
-            // Common errors: ERROR_NO_MATCH (7), ERROR_SPEECH_TIMEOUT (6)
-            // Restart listening unless we've been stopped
-            if (running) {
-                val delay = if (error == SpeechRecognizer.ERROR_NO_MATCH) 200L else 1000L
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    startListening()
-                }, delay)
-            } else {
-                isListening = false
-            }
-        }
-
-        override fun onResults(results: Bundle?) {
-            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: emptyList()
-            processResults(matches)
-            // Restart listening for continuous mode
-            if (running) {
-                startListening()
-            }
-        }
-
-        override fun onPartialResults(partialResults: Bundle?) {
-            val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: emptyList()
-            processResults(matches)
-        }
-
-        override fun onEvent(eventType: Int, params: Bundle?) {}
     }
 }

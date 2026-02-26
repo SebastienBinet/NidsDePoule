@@ -24,6 +24,8 @@ import fr.nidsdepoule.app.sensor.LocationReading
 import fr.nidsdepoule.app.sensor.LocationSource
 import fr.nidsdepoule.app.sensor.VoiceCommandListener
 import fr.nidsdepoule.app.ui.AccelerationBuffer
+import fr.nidsdepoule.app.ui.MapMarkerData
+import fr.nidsdepoule.app.ui.MapMarkerType
 import fr.nidsdepoule.app.ui.VoiceFeedback
 import android.os.Handler
 import android.os.Looper
@@ -106,6 +108,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var voiceMuted by mutableStateOf(false)
         private set
 
+    // --- Map state ---
+    var mapMarkers by mutableStateOf<List<MapMarkerData>>(emptyList())
+        private set
+    var locationHistorySnapshot by mutableStateOf<List<LocationReading>>(emptyList())
+        private set
+
+    // --- Voice training state ---
+    var showVoiceTraining by mutableStateOf(false)
+        private set
+    var voiceTrainingKeywords by mutableStateOf<List<String>>(emptyList())
+        private set
+    var voiceTrainingLabel by mutableStateOf("")
+        private set
+
     // Dev mode tap counter
     private var devModeTapCount = 0
     private var lastDevModeTapMs = 0L
@@ -165,6 +181,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (locationHistory.size > 100) {
                 locationHistory.removeFirst()
             }
+            // Update snapshot for the map (~last 30 seconds at 1Hz = ~30 readings)
+            val cutoff = System.currentTimeMillis() - 30_000
+            locationHistorySnapshot = locationHistory.filter { it.timestampMs >= cutoff }
         }
     }
 
@@ -240,21 +259,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             source = ReportSource.ALMOST,
         )
         hitsDetected++
+        // Add map marker at current position
+        addMapMarker(location, MapMarkerType.ALMOST)
         sendReport(event, location, "iiiiiiiii !!!")
     }
 
-    /** "AYOYE !?!#$!" — I just hit a pothole (Hit). Captures last 5s of accel data. */
+    /**
+     * "AYOYE !?!#$!" — I just hit a pothole (Hit).
+     * Finds the biggest acceleration peak in the last 30 seconds,
+     * interpolates GPS position at that timestamp, and reports that position.
+     */
     fun onReportHit() {
-        val location = lastLocation ?: return
+        // Find peak in the full 30s buffer and mark it on the graph
+        val peakSample = accelBuffer.findAndMarkPeak()
+        // Force graph update to show the tick mark
+        accelSamples = accelBuffer.snapshot(step = 4)
+
         val event = buildHitEvent()
         hitsDetected++
-        accelBuffer.markLastAsHit()
+
+        // Interpolate GPS position at the peak timestamp
+        val peakLocation = if (peakSample != null) {
+            interpolateLocation(peakSample.timestampMs) ?: lastLocation
+        } else {
+            lastLocation
+        }
+        val location = peakLocation ?: return
+
+        // Add map marker at the interpolated peak position
+        addMapMarker(location, MapMarkerType.HIT)
         sendReport(event, location, "AYOYE !?!#\$!")
     }
 
-    /** Build a HitEvent from the last 5 seconds of accelerometer data. */
+    /** Build a HitEvent from the last 30 seconds of accelerometer data. */
     private fun buildHitEvent(): HitEvent {
-        val readings = accelRecorder.recentReadings(5000)
+        val readings = accelRecorder.recentReadings(30_000)
         if (readings.isEmpty()) {
             return HitEvent(
                 timestampMs = System.currentTimeMillis(),
@@ -297,6 +336,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             peakToBaselineRatio = ratio,
             source = ReportSource.HIT,
         )
+    }
+
+    /** Interpolate GPS position at a given timestamp from the location history. */
+    private fun interpolateLocation(timestampMs: Long): LocationReading? {
+        synchronized(locationHistory) {
+            if (locationHistory.isEmpty()) return null
+            if (locationHistory.size == 1) return locationHistory.first()
+
+            // Find the two readings bracketing the timestamp
+            var before: LocationReading? = null
+            var after: LocationReading? = null
+            for (reading in locationHistory) {
+                if (reading.timestampMs <= timestampMs) {
+                    before = reading
+                } else {
+                    after = reading
+                    break
+                }
+            }
+
+            // If timestamp is before all readings or after all readings, use nearest
+            if (before == null) return locationHistory.first()
+            if (after == null) return locationHistory.last()
+
+            // Linear interpolation
+            val dt = (after.timestampMs - before.timestampMs).toFloat()
+            if (dt <= 0) return before
+            val t = ((timestampMs - before.timestampMs) / dt).coerceIn(0f, 1f)
+
+            return LocationReading(
+                timestampMs = timestampMs,
+                latMicrodeg = (before.latMicrodeg + t * (after.latMicrodeg - before.latMicrodeg)).toInt(),
+                lonMicrodeg = (before.lonMicrodeg + t * (after.lonMicrodeg - before.lonMicrodeg)).toInt(),
+                accuracyM = before.accuracyM,
+                speedMps = before.speedMps + t * (after.speedMps - before.speedMps),
+                bearingDeg = before.bearingDeg,
+            )
+        }
+    }
+
+    /** Add a map marker and update the observable list. */
+    private fun addMapMarker(location: LocationReading, type: MapMarkerType) {
+        val marker = MapMarkerData(
+            latMicrodeg = location.latMicrodeg,
+            lonMicrodeg = location.lonMicrodeg,
+            type = type,
+            timestampMs = System.currentTimeMillis(),
+        )
+        mapMarkers = mapMarkers + marker
+    }
+
+    // --- Voice training ---
+
+    fun startVoiceTraining(keywords: List<String>, label: String) {
+        voiceTrainingKeywords = keywords
+        voiceTrainingLabel = label
+        showVoiceTraining = true
+    }
+
+    fun onVoiceTrainingDismiss() {
+        showVoiceTraining = false
+    }
+
+    fun onVoiceTrainingComplete() {
+        showVoiceTraining = false
+        // Reload profiles so the listener uses the new templates
+        voiceCommandListener.reloadProfiles()
     }
 
     private fun sendReport(event: HitEvent, location: LocationReading, flashText: String = "HIT!") {

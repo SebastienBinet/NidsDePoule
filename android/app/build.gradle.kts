@@ -93,6 +93,9 @@ dependencies {
     // Google Play Services (Fused Location Provider)
     implementation("com.google.android.gms:play-services-location:21.0.1")
 
+    // OpenStreetMap (map widget — no API key required)
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test:1.9.20")

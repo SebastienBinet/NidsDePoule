@@ -85,6 +85,31 @@ fun AccelerationGraph(
                 end = Offset(x, centerY + barHalfLen),
                 strokeWidth = barWidth,
             )
+
+            // Draw tick mark at bottom for peak sent to server
+            if (sample.isPeakSent) {
+                val tickY = height - 2f
+                // Tick line
+                drawLine(
+                    color = Color(0xFFFF1744),
+                    start = Offset(x, tickY - 10f),
+                    end = Offset(x, tickY),
+                    strokeWidth = 3f,
+                )
+                // Small triangle/arrow pointing up
+                drawLine(
+                    color = Color(0xFFFF1744),
+                    start = Offset(x - 4f, tickY - 6f),
+                    end = Offset(x, tickY - 10f),
+                    strokeWidth = 2f,
+                )
+                drawLine(
+                    color = Color(0xFFFF1744),
+                    start = Offset(x + 4f, tickY - 6f),
+                    end = Offset(x, tickY - 10f),
+                    strokeWidth = 2f,
+                )
+            }
         }
 
         // Draw scale labels

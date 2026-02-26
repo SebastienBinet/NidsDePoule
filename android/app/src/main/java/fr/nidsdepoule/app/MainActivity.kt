@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
+import fr.nidsdepoule.app.sensor.VoiceCommandListener
 import fr.nidsdepoule.app.ui.MainScreen
 
 class MainActivity : ComponentActivity() {
@@ -76,6 +77,29 @@ class MainActivity : ComponentActivity() {
                         voiceMuted = viewModel.voiceMuted,
                         onToggleVoice = { viewModel.toggleVoice() },
                         isListening = viewModel.voiceCommandListener.isListening,
+                        // Map
+                        locationHistory = viewModel.locationHistorySnapshot,
+                        mapMarkers = viewModel.mapMarkers,
+                        // Voice training
+                        showVoiceTraining = viewModel.showVoiceTraining,
+                        voiceTrainingKeywords = viewModel.voiceTrainingKeywords,
+                        voiceTrainingLabel = viewModel.voiceTrainingLabel,
+                        onAlmostLongPress = {
+                            viewModel.startVoiceTraining(
+                                VoiceCommandListener.ALMOST_KEYWORDS, "Almost"
+                            )
+                        },
+                        onHitLongPress = {
+                            viewModel.startVoiceTraining(
+                                VoiceCommandListener.HIT_KEYWORDS, "Hit"
+                            )
+                        },
+                        onVoiceTrainingDismiss = { viewModel.onVoiceTrainingDismiss() },
+                        onVoiceTrainingComplete = { viewModel.onVoiceTrainingComplete() },
+                        profileStore = viewModel.voiceCommandListener.getProfileStore(),
+                        mfccExtractor = viewModel.voiceCommandListener.getMfccExtractor(),
+                        // Voice match overlay
+                        voiceMatchScores = viewModel.voiceCommandListener.matchScores,
                     )
                 }
             }

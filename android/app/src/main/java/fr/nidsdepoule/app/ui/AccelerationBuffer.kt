@@ -14,6 +14,8 @@ class AccelerationBuffer(private val maxSize: Int = 1500) {
         val timestampMs: Long,
         val magnitudeMg: Int,
         val isHit: Boolean = false,
+        /** True if this sample is the peak acceleration sent to server for a Hit report. */
+        val isPeakSent: Boolean = false,
     )
 
     private val samples = ArrayDeque<Sample>(maxSize)
@@ -47,6 +49,43 @@ class AccelerationBuffer(private val maxSize: Int = 1500) {
             val last = samples.removeLast()
             samples.addLast(last.copy(isHit = true))
         }
+    }
+
+    /**
+     * Find the sample with the highest acceleration in the entire buffer (last 30s),
+     * mark it as isPeakSent=true and isHit=true, and return it.
+     * Returns null if the buffer is empty.
+     */
+    fun findAndMarkPeak(): Sample? {
+        if (samples.isEmpty()) return null
+
+        var peakIdx = 0
+        var peakMag = 0
+        var idx = 0
+        for (s in samples) {
+            if (s.magnitudeMg > peakMag) {
+                peakMag = s.magnitudeMg
+                peakIdx = idx
+            }
+            idx++
+        }
+
+        // Replace the peak sample with the marked version
+        val newSamples = ArrayList<Sample>(samples.size)
+        idx = 0
+        for (s in samples) {
+            if (idx == peakIdx) {
+                newSamples.add(s.copy(isHit = true, isPeakSent = true))
+            } else {
+                newSamples.add(s)
+            }
+            idx++
+        }
+
+        samples.clear()
+        for (s in newSamples) samples.addLast(s)
+
+        return newSamples[peakIdx]
     }
 
     fun clear() {

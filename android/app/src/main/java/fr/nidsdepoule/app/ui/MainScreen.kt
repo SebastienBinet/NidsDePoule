@@ -3,11 +3,14 @@ package fr.nidsdepoule.app.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +24,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.R
+import fr.nidsdepoule.app.sensor.LocationReading
+import fr.nidsdepoule.app.sensor.audio.MfccExtractor
+import fr.nidsdepoule.app.sensor.audio.VoiceProfileStore
 
 /**
  * Main screen of the NidsDePoule app.
@@ -32,7 +38,7 @@ import fr.nidsdepoule.app.R
  * 4. Data usage stats
  * 5. Hit counter
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(
     accelSamples: List<AccelerationBuffer.Sample>,
@@ -58,11 +64,39 @@ fun MainScreen(
     voiceMuted: Boolean = false,
     onToggleVoice: () -> Unit = {},
     isListening: Boolean = false,
+    // Map
+    locationHistory: List<LocationReading> = emptyList(),
+    mapMarkers: List<MapMarkerData> = emptyList(),
+    // Voice training
+    showVoiceTraining: Boolean = false,
+    voiceTrainingKeywords: List<String> = emptyList(),
+    voiceTrainingLabel: String = "",
+    onAlmostLongPress: () -> Unit = {},
+    onHitLongPress: () -> Unit = {},
+    onVoiceTrainingDismiss: () -> Unit = {},
+    onVoiceTrainingComplete: () -> Unit = {},
+    profileStore: VoiceProfileStore? = null,
+    mfccExtractor: MfccExtractor? = null,
+    // Voice match overlay (dev mode)
+    voiceMatchScores: Map<String, Float> = emptyMap(),
 ) {
+    // Voice training dialog
+    if (showVoiceTraining && profileStore != null && mfccExtractor != null) {
+        VoiceTrainingDialog(
+            keywords = voiceTrainingKeywords,
+            groupLabel = voiceTrainingLabel,
+            profileStore = profileStore,
+            mfccExtractor = mfccExtractor,
+            onDismiss = onVoiceTrainingDismiss,
+            onComplete = onVoiceTrainingComplete,
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
     ) {
         // Title with deploy canary and voice toggle
@@ -123,12 +157,36 @@ fun MainScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // Two big report buttons: Almost and Hit
+        // Tap = report. Long-press = voice training.
         ReportButtonsPanel(
             onAlmost = onAlmost,
             onHit = onHit,
+            onAlmostLongPress = onAlmostLongPress,
+            onHitLongPress = onHitLongPress,
         )
 
         Spacer(modifier = Modifier.height(12.dp))
+
+        // Map widget (above the graph)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = "Route (last 30s)",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                RouteMapWidget(
+                    locationHistory = locationHistory,
+                    markers = mapMarkers,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Acceleration graph
         Card(
@@ -166,9 +224,16 @@ fun MainScreen(
             hitsPending = hitsPending,
         )
 
-        // Dev mode controls (simulation + server URL read-only)
+        // Dev mode controls (voice match overlay + simulation + server URL)
         if (devModeEnabled) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Voice match overlay
+            if (voiceMatchScores.isNotEmpty()) {
+                VoiceMatchOverlay(matchScores = voiceMatchScores)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             Button(
                 onClick = onToggleSimulation,
                 modifier = Modifier.fillMaxWidth(),
@@ -201,7 +266,7 @@ fun MainScreen(
             )
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Version number (tap 7 times for dev mode)
         Box(
@@ -389,65 +454,72 @@ private fun HitCounterCard(
  * Layout:  [ iiiiiiiii !!! ] [ AYOYE !?!#$! ]
  *            Almost (amber)    Hit (red)
  *
+ * Tap = report. Long-press = voice training for that category.
  * Buttons are intentionally large so the driver can tap without looking.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ReportButtonsPanel(
     onAlmost: () -> Unit,
     onHit: () -> Unit,
+    onAlmostLongPress: () -> Unit = {},
+    onHitLongPress: () -> Unit = {},
 ) {
-    val almostColor = ButtonDefaults.buttonColors(
-        containerColor = Color(0xFFFF8F00),  // amber
-        contentColor = Color.White,
-    )
-    val hitColor = ButtonDefaults.buttonColors(
-        containerColor = Color(0xFFD32F2F),  // red
-        contentColor = Color.White,
-    )
-
     val btnHeight = 72.dp
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Button(
-            onClick = onAlmost,
+        // Almost button (amber) — long-press for voice training
+        Box(
             modifier = Modifier
                 .weight(1f)
-                .height(btnHeight),
-            colors = almostColor,
-            shape = RoundedCornerShape(12.dp),
+                .height(btnHeight)
+                .background(Color(0xFFFF8F00), RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = onAlmost,
+                    onLongClick = onAlmostLongPress,
+                ),
+            contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = stringResource(R.string.btn_almost),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
                 )
                 Text(
                     text = stringResource(R.string.btn_almost_hint),
                     fontSize = 9.sp,
+                    color = Color.White,
                 )
             }
         }
-        Button(
-            onClick = onHit,
+        // Hit button (red) — long-press for voice training
+        Box(
             modifier = Modifier
                 .weight(1f)
-                .height(btnHeight),
-            colors = hitColor,
-            shape = RoundedCornerShape(12.dp),
+                .height(btnHeight)
+                .background(Color(0xFFD32F2F), RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = onHit,
+                    onLongClick = onHitLongPress,
+                ),
+            contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = stringResource(R.string.btn_hit),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
                 )
                 Text(
                     text = stringResource(R.string.btn_hit_hint),
                     fontSize = 9.sp,
+                    color = Color.White,
                 )
             }
         }
