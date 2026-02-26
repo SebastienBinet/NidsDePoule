@@ -61,6 +61,11 @@ fun MainScreen(
     onServerUrlChanged: (String) -> Unit = {},
     voiceMuted: Boolean = false,
     onToggleVoice: () -> Unit = {},
+    thresholdFactor: Double = 3.0,
+    onThresholdFactorChanged: (Double) -> Unit = {},
+    minMagnitudeMg: Int = 150,
+    onMinMagnitudeChanged: (Int) -> Unit = {},
+    currentBaselineMg: Int = 0,
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
     Column(
@@ -156,34 +161,6 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Reporting mode — greyed out single line
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = "${stringResource(R.string.reporting_mode)}: ${stringResource(R.string.mode_realtime)}",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-            )
-            Text(
-                text = stringResource(R.string.future_feature),
-                fontSize = 9.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                modifier = Modifier
-                    .background(
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        RoundedCornerShape(3.dp),
-                    )
-                    .padding(horizontal = 4.dp, vertical = 1.dp),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         // Data usage
         DataUsageCard(
             kbLastMinute = kbLastMinute,
@@ -222,6 +199,14 @@ fun MainScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            SensitivitySliders(
+                thresholdFactor = thresholdFactor,
+                onThresholdFactorChanged = onThresholdFactorChanged,
+                minMagnitudeMg = minMagnitudeMg,
+                onMinMagnitudeChanged = onMinMagnitudeChanged,
+                currentBaselineMg = currentBaselineMg,
             )
         }
 
@@ -542,6 +527,90 @@ private fun ReportButtonsPanel(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Dev-mode sliders for tuning detection sensitivity while driving.
+ *
+ * Two parameters:
+ * - thresholdFactor: multiplier over rolling baseline (e.g. 3.0 = 3x baseline)
+ * - minMagnitudeMg: absolute floor in milli-g (e.g. 150 = 0.15G)
+ */
+@Composable
+private fun SensitivitySliders(
+    thresholdFactor: Double,
+    onThresholdFactorChanged: (Double) -> Unit,
+    minMagnitudeMg: Int,
+    onMinMagnitudeChanged: (Int) -> Unit,
+    currentBaselineMg: Int = 0,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        ),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "Detection Sensitivity",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Live rolling baseline + computed trigger threshold
+            val triggerAt = (currentBaselineMg * thresholdFactor).toInt()
+            Text(
+                text = "baseline = $currentBaselineMg mg  \u2192  trigger at ${maxOf(triggerAt, minMagnitudeMg)} mg",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFFFF6D00),
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Slider 1: thresholdFactor (1.5 .. 8.0)
+            Text(
+                text = "thresholdFactor = %.1f".format(thresholdFactor),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "Baseline multiplier \u2014 higher = less sensitive",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            )
+            Slider(
+                value = thresholdFactor.toFloat(),
+                onValueChange = { onThresholdFactorChanged(it.toDouble()) },
+                valueRange = 1.5f..8.0f,
+                steps = 12,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Slider 2: minMagnitudeMg (50 .. 500)
+            Text(
+                text = "minMagnitudeMg = $minMagnitudeMg",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "Absolute floor in milli-g \u2014 higher = less sensitive",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            )
+            Slider(
+                value = minMagnitudeMg.toFloat(),
+                onValueChange = { onMinMagnitudeChanged(it.toInt()) },
+                valueRange = 50f..500f,
+                steps = 8,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

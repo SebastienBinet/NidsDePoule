@@ -11,10 +11,22 @@ data class AccelReading(
 
 class ThresholdHitDetector(
     private val bufferSize: Int = 1500,
-    private val thresholdFactor: Double = 3.0,
+    thresholdFactor: Double = DEFAULT_THRESHOLD_FACTOR,
+    minMagnitudeMg: Int = DEFAULT_MIN_MAGNITUDE_MG,
     private val waveformSamples: Int = 150,
     private val cooldownMs: Long = 500
 ) : HitDetectionStrategy {
+
+    /** Relative multiplier: a reading must exceed baseline × this factor to trigger. */
+    var thresholdFactor: Double = thresholdFactor
+
+    /** Absolute floor in milli-g: a reading must also exceed this value to trigger. */
+    var minMagnitudeMg: Int = minMagnitudeMg
+
+    companion object {
+        const val DEFAULT_THRESHOLD_FACTOR = 3.0
+        const val DEFAULT_MIN_MAGNITUDE_MG = 150
+    }
 
     private val buffer = mutableListOf<AccelReading>()
     private var lastHitTimestamp: Long = 0
@@ -43,10 +55,12 @@ class ThresholdHitDetector(
         // Compute baseline as rolling median of magnitude
         val baseline = computeBaseline()
 
-        // Detect hit when current magnitude exceeds threshold
+        // Detect hit when current magnitude exceeds BOTH:
+        // 1. A relative threshold (baseline × factor) — adapts to road conditions
+        // 2. An absolute minimum floor — prevents false positives from noise
         val threshold = baseline * thresholdFactor
 
-        if (magnitudeMg < threshold) {
+        if (magnitudeMg < threshold || magnitudeMg < minMagnitudeMg) {
             return null
         }
 
@@ -84,6 +98,10 @@ class ThresholdHitDetector(
             peakToBaselineRatio = (ratio * 100).toInt()
         )
     }
+
+    /** Current rolling baseline (median magnitude), or 0 if not enough samples. */
+    val currentBaselineMg: Int
+        get() = if (buffer.size >= 10) computeBaseline() else 0
 
     override fun reset() {
         buffer.clear()

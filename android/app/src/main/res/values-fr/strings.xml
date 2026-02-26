@@ -3,9 +3,8 @@
     <string name="app_name">NidsDePoule</string>
 
     <!-- Main screen -->
-    <string name="acceleration_graph">Accélération (dernière minute)</string>
-    <string name="vertical">Haut-Bas</string>
-    <string name="lateral">Gauche-Droite</string>
+    <string name="acceleration_graph">Accélération (30 dernières sec.)</string>
+    <string name="magnitude">Force G</string>
     <string name="reporting_mode">Mode de transmission</string>
     <string name="mode_realtime">Temps réel</string>
     <string name="mode_wifi_batch">Wi-Fi uniquement</string>

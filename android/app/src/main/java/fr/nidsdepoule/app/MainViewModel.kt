@@ -3,6 +3,7 @@ package fr.nidsdepoule.app
 import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -55,7 +56,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     } catch (_: Exception) { "0.1.0" }
 
     // --- Core modules ---
-    private val hitDetector: HitDetectionStrategy = ThresholdHitDetector()
+    private val hitDetector = ThresholdHitDetector()
     private val carMountDetector = CarMountDetector()
     val accelBuffer = AccelerationBuffer()
     private val dataUsageTracker = DataUsageTracker()
@@ -121,6 +122,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var voiceMuted by mutableStateOf(false)
         private set
 
+    // --- Dev-mode tuning: detection sensitivity ---
+    /** Relative threshold factor (baseline × factor). Higher = less sensitive. */
+    var thresholdFactor by mutableDoubleStateOf(ThresholdHitDetector.DEFAULT_THRESHOLD_FACTOR)
+        private set
+    /** Absolute minimum magnitude in milli-g. Higher = less sensitive. */
+    var minMagnitudeMg by mutableIntStateOf(ThresholdHitDetector.DEFAULT_MIN_MAGNITUDE_MG)
+        private set
+    /** Current rolling baseline from the detector (median magnitude in milli-g). */
+    var currentBaselineMg by mutableIntStateOf(0)
+        private set
+
     // Dev mode tap counter
     private var devModeTapCount = 0
     private var lastDevModeTapMs = 0L
@@ -155,25 +167,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Feed acceleration buffer (for graph display)
             accelBuffer.add(timestamp, magnitudeMg)
 
-            // Feed car mount detector (uses raw linear accel for stability check)
+            // Feed car mount detector (for status display)
             carMountDetector.processReading(x, y, z)
             isMounted = carMountDetector.isMounted
 
-            // Only detect hits when mounted (or in dev mode)
-            if (isMounted || devModeEnabled) {
-                val speed = lastLocation?.speedMps ?: 0f
-                val event = hitDetector.processReading(timestamp, magnitudeMg, speed)
+            // Always run hit detection — the minimum magnitude floor in
+            // ThresholdHitDetector prevents false positives from hand movement.
+            // Mount status is shown as an indicator but doesn't gate detection.
+            val speed = lastLocation?.speedMps ?: 0f
+            val event = hitDetector.processReading(timestamp, magnitudeMg, speed)
 
-                if (event != null) {
-                    hitsDetected++
-                    accelBuffer.markLastAsHit()
-                    onHitDetected(event)
-                }
+            if (event != null) {
+                hitsDetected++
+                accelBuffer.markLastAsHit()
+                onHitDetected(event)
             }
 
             // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
             if (accelBuffer.size % 10 == 0) {
                 accelSamples = accelBuffer.snapshot(step = 4)
+                currentBaselineMg = hitDetector.currentBaselineMg
             }
         })
 
@@ -235,6 +248,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleVoice() {
         voiceMuted = !voiceMuted
+    }
+
+    fun updateThresholdFactor(value: Double) {
+        thresholdFactor = value
+        hitDetector.thresholdFactor = value
+    }
+
+    fun updateMinMagnitudeMg(value: Int) {
+        minMagnitudeMg = value
+        hitDetector.minMagnitudeMg = value
     }
 
     /** Toggle between real GPS and cemetery circuit simulation. */
@@ -356,6 +379,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun sendReport(event: HitEvent, location: LocationReading, flashText: String = "HIT!") {
         triggerHitFlash(flashText)
+        if (!voiceMuted) {
+            voiceFeedback.speakHit(event.severity)
+        }
         val bearingBefore = computeBearingBefore()
         val bearingAfter = location.bearingDeg
         val report = HitReportData.create(event, location, bearingBefore, bearingAfter)
@@ -377,18 +403,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun onHitDetected(event: HitEvent) {
         val location = lastLocation ?: return  // No GPS -> can't report
-        triggerHitFlash()
-
-        // Voice feedback
-        if (!voiceMuted) {
-            voiceFeedback.speakHit(event.severity)
-        }
-
-        val bearingBefore = computeBearingBefore()
-        val bearingAfter = location.bearingDeg  // Use current bearing as estimate for "after"
-
-        val report = HitReportData.create(event, location, bearingBefore, bearingAfter)
-        hitReporter.report(report)
+        sendReport(event, location)
     }
 
     /**
