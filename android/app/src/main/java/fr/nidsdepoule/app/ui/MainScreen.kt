@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -12,33 +13,31 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.R
-import fr.nidsdepoule.app.reporting.HitReporter
 
 /**
  * Main screen of the NidsDePoule app.
  *
  * Shows:
- * 1. Status bar (car mount, GPS, connection)
- * 2. Acceleration graph (last 60 seconds)
- * 3. Data usage stats (KB/min, MB/hour, MB/month)
- * 4. Reporting mode toggle (real-time vs Wi-Fi batch)
+ * 1. Status bar (GPS, connection)
+ * 2. Two big report buttons (Almost / Hit)
+ * 3. Acceleration graph (last 30 seconds)
+ * 4. Data usage stats
  * 5. Hit counter
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     accelSamples: List<AccelerationBuffer.Sample>,
-    isMounted: Boolean,
     hasGpsFix: Boolean,
     isConnected: Boolean,
-    reportingMode: HitReporter.Mode,
-    onModeChanged: (HitReporter.Mode) -> Unit,
     hitsDetected: Int,
     hitsSent: Int,
     hitsPending: Int,
@@ -49,23 +48,16 @@ fun MainScreen(
     buildTime: String,
     devModeEnabled: Boolean,
     onDevModeTap: () -> Unit,
-    onVisualSmall: () -> Unit = {},
-    onVisualBig: () -> Unit = {},
-    onImpactSmall: () -> Unit = {},
-    onImpactBig: () -> Unit = {},
+    onAlmost: () -> Unit = {},
+    onHit: () -> Unit = {},
     hitFlashActive: Boolean = false,
     hitFlashText: String = "HIT!",
     isSimulating: Boolean = false,
     onToggleSimulation: () -> Unit = {},
     serverUrl: String = "",
-    onServerUrlChanged: (String) -> Unit = {},
     voiceMuted: Boolean = false,
     onToggleVoice: () -> Unit = {},
-    thresholdFactor: Double = 3.0,
-    onThresholdFactorChanged: (Double) -> Unit = {},
-    minMagnitudeMg: Int = 150,
-    onMinMagnitudeChanged: (Int) -> Unit = {},
-    currentBaselineMg: Int = 0,
+    isListening: Boolean = false,
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
     Column(
@@ -86,12 +78,12 @@ fun MainScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "v5 PURPLE",
+                text = "v6 TEAL",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
                 modifier = Modifier
-                    .background(Color(0xFF9C27B0), RoundedCornerShape(3.dp))
+                    .background(Color(0xFF009688), RoundedCornerShape(3.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
             Spacer(modifier = Modifier.weight(1f))
@@ -121,21 +113,19 @@ fun MainScreen(
 
         // Status indicators
         StatusBar(
-            isMounted = isMounted,
             hasGpsFix = hasGpsFix,
             isConnected = isConnected,
             devModeEnabled = devModeEnabled,
             isSimulating = isSimulating,
+            isListening = isListening,
         )
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Manual report buttons — large targets for in-car use
+        // Two big report buttons: Almost and Hit
         ReportButtonsPanel(
-            onVisualSmall = onVisualSmall,
-            onVisualBig = onVisualBig,
-            onImpactSmall = onImpactSmall,
-            onImpactBig = onImpactBig,
+            onAlmost = onAlmost,
+            onHit = onHit,
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -176,7 +166,7 @@ fun MainScreen(
             hitsPending = hitsPending,
         )
 
-        // Dev mode controls (simulation + server URL)
+        // Dev mode controls (simulation + server URL read-only)
         if (devModeEnabled) {
             Spacer(modifier = Modifier.height(12.dp))
             Button(
@@ -192,21 +182,22 @@ fun MainScreen(
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
-            OutlinedTextField(
-                value = serverUrl,
-                onValueChange = onServerUrlChanged,
-                label = { Text("Server URL") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            SensitivitySliders(
-                thresholdFactor = thresholdFactor,
-                onThresholdFactorChanged = onThresholdFactorChanged,
-                minMagnitudeMg = minMagnitudeMg,
-                onMinMagnitudeChanged = onMinMagnitudeChanged,
-                currentBaselineMg = currentBaselineMg,
+            // Server URL — read-only, tap to copy
+            val clipboardManager = LocalClipboardManager.current
+            Text(
+                text = "Server: $serverUrl",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        RoundedCornerShape(4.dp),
+                    )
+                    .clickable { clipboardManager.setText(AnnotatedString(serverUrl)) }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             )
         }
 
@@ -227,7 +218,7 @@ fun MainScreen(
         }
     }
 
-    // Full-screen red flash overlay when a hit is detected
+    // Full-screen flash overlay when a report is sent
     AnimatedVisibility(
         visible = hitFlashActive,
         enter = fadeIn(),
@@ -252,20 +243,16 @@ fun MainScreen(
 
 @Composable
 private fun StatusBar(
-    isMounted: Boolean,
     hasGpsFix: Boolean,
     isConnected: Boolean,
     devModeEnabled: Boolean,
     isSimulating: Boolean = false,
+    isListening: Boolean = false,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusChip(
-            label = stringResource(R.string.status_car_mount),
-            active = isMounted,
-        )
         StatusChip(
             label = stringResource(R.string.status_gps),
             active = hasGpsFix,
@@ -274,6 +261,17 @@ private fun StatusBar(
             label = stringResource(R.string.status_connected),
             active = isConnected,
         )
+        if (isListening) {
+            Text(
+                text = "MIC",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier
+                    .background(Color(0xFF2196F3), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
         if (devModeEnabled) {
             Text(
                 text = "DEV",
@@ -323,17 +321,6 @@ private fun StatusChip(label: String, active: Boolean) {
             .background(bgColor, RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 4.dp),
     )
-}
-
-@Composable
-private fun LegendDot(color: androidx.compose.ui.graphics.Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Canvas(modifier = Modifier.size(8.dp)) {
-            drawCircle(color = color)
-        }
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(text = label, fontSize = 11.sp)
-    }
 }
 
 @Composable
@@ -397,220 +384,72 @@ private fun HitCounterCard(
 }
 
 /**
- * Four big buttons for manual pothole reporting.
+ * Two big buttons for pothole reporting.
  *
- * Layout:  [  Hiii !  ] [ HIIIIIII !!! ]
- *          [  Ouch !  ] [  AYOYE !     ]
- *
- * Top row  = "I see a pothole" (visual, no accelerometer data).
- * Bottom row = "I just hit a pothole" (captures last 5 s of accel data).
+ * Layout:  [ iiiiiiiii !!! ] [ AYOYE !?!#$! ]
+ *            Almost (amber)    Hit (red)
  *
  * Buttons are intentionally large so the driver can tap without looking.
  */
 @Composable
 private fun ReportButtonsPanel(
-    onVisualSmall: () -> Unit,
-    onVisualBig: () -> Unit,
-    onImpactSmall: () -> Unit,
-    onImpactBig: () -> Unit,
+    onAlmost: () -> Unit,
+    onHit: () -> Unit,
 ) {
-    // Colors: yellow tones for visual (seeing), red/orange tones for impact (hitting)
-    val visualSmallColor = ButtonDefaults.buttonColors(
-        containerColor = Color(0xFFFDD835),  // yellow
-        contentColor = Color(0xFF212121),
-    )
-    val visualBigColor = ButtonDefaults.buttonColors(
+    val almostColor = ButtonDefaults.buttonColors(
         containerColor = Color(0xFFFF8F00),  // amber
         contentColor = Color.White,
     )
-    val impactSmallColor = ButtonDefaults.buttonColors(
-        containerColor = Color(0xFFFF7043),  // deep orange
-        contentColor = Color.White,
-    )
-    val impactBigColor = ButtonDefaults.buttonColors(
+    val hitColor = ButtonDefaults.buttonColors(
         containerColor = Color(0xFFD32F2F),  // red
         contentColor = Color.White,
     )
 
-    val btnHeight = 56.dp
+    val btnHeight = 72.dp
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        // Top row: visual reports ("I see it")
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Button(
-                onClick = onVisualSmall,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(btnHeight),
-                colors = visualSmallColor,
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.btn_visual_small),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = stringResource(R.string.btn_visual_small_hint),
-                        fontSize = 9.sp,
-                    )
-                }
-            }
-            Button(
-                onClick = onVisualBig,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(btnHeight),
-                colors = visualBigColor,
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.btn_visual_big),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.btn_visual_big_hint),
-                        fontSize = 9.sp,
-                    )
-                }
-            }
-        }
-
-        // Bottom row: impact reports ("I hit it")
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Button(
-                onClick = onImpactSmall,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(btnHeight),
-                colors = impactSmallColor,
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.btn_impact_small),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = stringResource(R.string.btn_impact_small_hint),
-                        fontSize = 9.sp,
-                    )
-                }
-            }
-            Button(
-                onClick = onImpactBig,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(btnHeight),
-                colors = impactBigColor,
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.btn_impact_big),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.btn_impact_big_hint),
-                        fontSize = 9.sp,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Dev-mode sliders for tuning detection sensitivity while driving.
- *
- * Two parameters:
- * - thresholdFactor: multiplier over rolling baseline (e.g. 3.0 = 3x baseline)
- * - minMagnitudeMg: absolute floor in milli-g (e.g. 150 = 0.15G)
- */
-@Composable
-private fun SensitivitySliders(
-    thresholdFactor: Double,
-    onThresholdFactorChanged: (Double) -> Unit,
-    minMagnitudeMg: Int,
-    onMinMagnitudeChanged: (Int) -> Unit,
-    currentBaselineMg: Int = 0,
-) {
-    Card(
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
-        ),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = "Detection Sensitivity",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.error,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Live rolling baseline + computed trigger threshold
-            val triggerAt = (currentBaselineMg * thresholdFactor).toInt()
-            Text(
-                text = "baseline = $currentBaselineMg mg  \u2192  trigger at ${maxOf(triggerAt, minMagnitudeMg)} mg",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color(0xFFFF6D00),
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Slider 1: thresholdFactor (1.5 .. 8.0)
-            Text(
-                text = "thresholdFactor = %.1f".format(thresholdFactor),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = "Baseline multiplier \u2014 higher = less sensitive",
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-            )
-            Slider(
-                value = thresholdFactor.toFloat(),
-                onValueChange = { onThresholdFactorChanged(it.toDouble()) },
-                valueRange = 1.5f..8.0f,
-                steps = 12,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Slider 2: minMagnitudeMg (50 .. 500)
-            Text(
-                text = "minMagnitudeMg = $minMagnitudeMg",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = "Absolute floor in milli-g \u2014 higher = less sensitive",
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-            )
-            Slider(
-                value = minMagnitudeMg.toFloat(),
-                onValueChange = { onMinMagnitudeChanged(it.toInt()) },
-                valueRange = 50f..500f,
-                steps = 8,
-                modifier = Modifier.fillMaxWidth(),
-            )
+        Button(
+            onClick = onAlmost,
+            modifier = Modifier
+                .weight(1f)
+                .height(btnHeight),
+            colors = almostColor,
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = stringResource(R.string.btn_almost),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Text(
+                    text = stringResource(R.string.btn_almost_hint),
+                    fontSize = 9.sp,
+                )
+            }
+        }
+        Button(
+            onClick = onHit,
+            modifier = Modifier
+                .weight(1f)
+                .height(btnHeight),
+            colors = hitColor,
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = stringResource(R.string.btn_hit),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Text(
+                    text = stringResource(R.string.btn_hit_hint),
+                    fontSize = 9.sp,
+                )
+            }
         }
     }
 }

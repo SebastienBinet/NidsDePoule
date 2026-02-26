@@ -6,10 +6,10 @@ import android.util.Log
 import java.util.Locale
 
 /**
- * French text-to-speech voice feedback for pothole detections.
+ * French text-to-speech voice feedback for pothole reports.
  *
- * Speaks "Aïe !" for small hits and "AYOYE !" for big hits,
- * using the Android TTS engine in French.
+ * Almost (severity < 3) → "Attention !"
+ * Hit (severity >= 3)   → "AYOYE !"
  */
 class VoiceFeedback(context: Context) {
 
@@ -38,10 +38,10 @@ class VoiceFeedback(context: Context) {
         }
     }
 
-    /** Speak a short phrase for a detected hit (severity 1-2 = small, 3 = big). */
+    /** Speak a short phrase: Almost (severity < 3) → "Attention !", Hit (severity >= 3) → "AYOYE !". */
     fun speakHit(severity: Int) {
         if (!ready) return
-        val phrase = if (severity >= 3) "AYOYE !" else "Aïe !"
+        val phrase = if (severity >= 3) "AYOYE !" else "Attention !"
         tts?.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "hit_${System.currentTimeMillis()}")
     }
 

@@ -11,6 +11,9 @@ router = APIRouter(prefix="/api/v1")
 
 # Source labels for human-readable display.
 _SOURCE_LABELS = {
+    "almost": "iiiiiiiii !!!",
+    "hit": "AYOYE !?!#$!",
+    # Legacy source values (pre-v6 clients).
     "auto": "Auto",
     "visual_small": "Hiii !",
     "visual_big": "HIIIIIII !!!",

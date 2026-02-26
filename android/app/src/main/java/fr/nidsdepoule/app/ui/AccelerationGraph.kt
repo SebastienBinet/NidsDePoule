@@ -32,7 +32,7 @@ fun AccelerationGraph(
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(120.dp)
+            .height(60.dp)
     ) {
         val width = size.width
         val height = size.height

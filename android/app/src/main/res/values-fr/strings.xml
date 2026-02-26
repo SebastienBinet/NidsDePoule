@@ -5,10 +5,6 @@
     <!-- Main screen -->
     <string name="acceleration_graph">Accélération (30 dernières sec.)</string>
     <string name="magnitude">Force G</string>
-    <string name="reporting_mode">Mode de transmission</string>
-    <string name="mode_realtime">Temps réel</string>
-    <string name="mode_wifi_batch">Wi-Fi uniquement</string>
-    <string name="future_feature">Bientôt disponible</string>
 
     <!-- Data usage -->
     <string name="data_usage">Données envoyées</string>
@@ -16,13 +12,16 @@
     <string name="last_hour">Dernière heure</string>
     <string name="this_month">Ce mois</string>
 
+    <!-- Report buttons -->
+    <string name="btn_almost_hint">Il y en a un proche !</string>
+    <string name="btn_hit_hint">Je viens d\'en pogner un !</string>
+
     <!-- Hit counters -->
     <string name="hits_detected">Détectés</string>
     <string name="hits_sent">Envoyés</string>
     <string name="hits_pending">En attente</string>
 
     <!-- Status indicators -->
-    <string name="status_car_mount">Support auto</string>
     <string name="status_gps">GPS</string>
     <string name="status_connected">Connecté</string>
 
@@ -33,5 +32,5 @@
     <string name="notification_channel_name">Détection de nids de poule</string>
     <string name="notification_title">NidsDePoule est actif</string>
     <string name="notification_text_active">Détection des nids de poule en cours</string>
-    <string name="notification_text_inactive">En attente du support auto</string>
+    <string name="notification_text_inactive">En attente du GPS</string>
 </resources>

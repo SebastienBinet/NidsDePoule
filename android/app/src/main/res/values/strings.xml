@@ -5,10 +5,6 @@
     <!-- Main screen -->
     <string name="acceleration_graph">Acceleration (last 30s)</string>
     <string name="magnitude">G-force</string>
-    <string name="reporting_mode">Reporting mode</string>
-    <string name="mode_realtime">Real-time</string>
-    <string name="mode_wifi_batch">Wi-Fi only</string>
-    <string name="future_feature">Coming soon</string>
 
     <!-- Data usage -->
     <string name="data_usage">Data sent</string>
@@ -16,15 +12,11 @@
     <string name="last_hour">Last hour</string>
     <string name="this_month">This month</string>
 
-    <!-- Manual report buttons -->
-    <string name="btn_visual_small">iiii !</string>
-    <string name="btn_visual_big">iiiiiiiii !!!</string>
-    <string name="btn_impact_small">Ouch !</string>
-    <string name="btn_impact_big">AYOYE !?!#$!</string>
-    <string name="btn_visual_small_hint">I see a pothole</string>
-    <string name="btn_visual_big_hint">Big pothole ahead!</string>
-    <string name="btn_impact_small_hint">Just hit one</string>
-    <string name="btn_impact_big_hint">Just hit a big one!</string>
+    <!-- Report buttons -->
+    <string name="btn_almost">iiiiiiiii !!!</string>
+    <string name="btn_hit">AYOYE !?!#$!</string>
+    <string name="btn_almost_hint">There\'s one near me!</string>
+    <string name="btn_hit_hint">Just hit one!</string>
 
     <!-- Hit counters -->
     <string name="hits_detected">Detected</string>
@@ -32,7 +24,6 @@
     <string name="hits_pending">Pending</string>
 
     <!-- Status indicators -->
-    <string name="status_car_mount">Car mount</string>
     <string name="status_gps">GPS</string>
     <string name="status_connected">Connected</string>
 
@@ -43,5 +34,5 @@
     <string name="notification_channel_name">Pothole detection</string>
     <string name="notification_title">NidsDePoule is running</string>
     <string name="notification_text_active">Detecting potholes</string>
-    <string name="notification_text_inactive">Waiting for car mount</string>
+    <string name="notification_text_inactive">Waiting for GPS</string>
 </resources>
