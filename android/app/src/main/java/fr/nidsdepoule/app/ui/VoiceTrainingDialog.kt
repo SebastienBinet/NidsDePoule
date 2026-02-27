@@ -79,7 +79,7 @@ fun VoiceTrainingDialog(
                 )
 
                 LinearProgressIndicator(
-                    progress = { overallProgress.toFloat() / totalSamples },
+                    progress = overallProgress.toFloat() / totalSamples,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp),
