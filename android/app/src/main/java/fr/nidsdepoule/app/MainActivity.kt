@@ -109,7 +109,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (hasLocationPermission()) {
-            startDetection()
+            // Defer to let Compose render the first frame before heavy init
+            window.decorView.post { startDetection() }
         } else {
             locationPermissionLauncher.launch(
                 arrayOf(

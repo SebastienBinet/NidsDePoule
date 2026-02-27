@@ -136,6 +136,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (isRunning) return
         isRunning = true
 
+        // Start TTS initialization on a background thread
+        voiceFeedback.ensureInitialized()
+
         // Wire connectivity callback
         hitReporter.onConnectivityChanged = { connected ->
             isConnected = connected

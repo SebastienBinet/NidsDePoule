@@ -11,31 +11,39 @@ import java.util.Locale
  * Almost (severity < 3) → "Attention !"
  * Hit (severity >= 3)   → "AYOYE !"
  */
-class VoiceFeedback(context: Context) {
+class VoiceFeedback(private val context: Context) {
 
     companion object {
         private const val TAG = "VoiceFeedback"
     }
 
     private var tts: TextToSpeech? = null
-    private var ready = false
+    @Volatile private var ready = false
+    private var initStarted = false
 
-    init {
-        tts = TextToSpeech(context.applicationContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                val result = tts?.setLanguage(Locale.CANADA_FRENCH)
-                    ?: TextToSpeech.LANG_NOT_SUPPORTED
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    // Fall back to generic French
-                    tts?.setLanguage(Locale.FRENCH)
+    /**
+     * Start TTS initialization on a background thread.
+     * Call early so TTS is ready by the time the user triggers a report.
+     */
+    fun ensureInitialized() {
+        if (initStarted) return
+        initStarted = true
+        Thread({
+            tts = TextToSpeech(context.applicationContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    val result = tts?.setLanguage(Locale.CANADA_FRENCH)
+                        ?: TextToSpeech.LANG_NOT_SUPPORTED
+                    if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        tts?.setLanguage(Locale.FRENCH)
+                    }
+                    tts?.setSpeechRate(1.3f)
+                    ready = true
+                    Log.i(TAG, "TTS initialized in French")
+                } else {
+                    Log.w(TAG, "TTS init failed with status $status")
                 }
-                tts?.setSpeechRate(1.3f)  // slightly faster for urgency
-                ready = true
-                Log.i(TAG, "TTS initialized in French")
-            } else {
-                Log.w(TAG, "TTS init failed with status $status")
             }
-        }
+        }, "TTS-Init").start()
     }
 
     /** Speak a short phrase: Almost (severity < 3) → "Attention !", Hit (severity >= 3) → "AYOYE !". */
