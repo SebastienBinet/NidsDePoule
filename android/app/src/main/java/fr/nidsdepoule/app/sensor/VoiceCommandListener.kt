@@ -84,22 +84,27 @@ class VoiceCommandListener(private val context: Context) {
         if (running) return
         running = true
 
-        // Load trained voice profiles
-        reloadProfiles()
-
-        // Initialize match scores
+        // Initialize match scores on main thread (Compose state)
         for (kw in ALL_KEYWORDS) {
             matchScores[kw] = 0f
         }
 
-        // Wire audio capture callbacks
-        audioCapture.onSpeechSegment = { segment ->
-            processSpeechSegment(segment)
-        }
+        // Load profiles and start audio capture off the main thread
+        // to avoid ANR (file I/O + audio hardware init).
+        Thread({
+            reloadProfiles()
 
-        audioCapture.start()
-        isListening = audioCapture.isRunning
-        Log.i(TAG, "Voice listener started with ${profiles.size} trained keywords")
+            audioCapture.onSpeechSegment = { segment ->
+                processSpeechSegment(segment)
+            }
+
+            audioCapture.start()
+
+            mainHandler.post {
+                isListening = audioCapture.isRunning
+                Log.i(TAG, "Voice listener started with ${profiles.size} trained keywords")
+            }
+        }, "VoiceListenerInit").start()
     }
 
     fun stop() {
