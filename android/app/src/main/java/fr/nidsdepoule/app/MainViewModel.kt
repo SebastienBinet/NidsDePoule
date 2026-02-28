@@ -2,6 +2,7 @@ package fr.nidsdepoule.app
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -41,7 +42,12 @@ import kotlin.math.sqrt
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        private const val TAG_INIT = "NDP_INIT"
+    }
+
     // --- Configuration ---
+    private val t0 = System.currentTimeMillis().also { Log.d(TAG_INIT, "ViewModel constructor START") }
     private val prefs = application.getSharedPreferences("nidsdepoule", Context.MODE_PRIVATE)
     val deviceId: String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("device_id", it).apply()
@@ -54,16 +60,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     } catch (_: Exception) { "0.1.0" }
 
     // --- Core modules ---
-    private val accelRecorder = AccelRecorder()
+    private val accelRecorder = AccelRecorder().also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms accelRecorder") }
     val accelBuffer = AccelerationBuffer()
     private val dataUsageTracker = DataUsageTracker()
-    private val voiceFeedback = VoiceFeedback(application)
-    val voiceCommandListener = VoiceCommandListener(application)
+    private val voiceFeedback = VoiceFeedback(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceFeedback") }
+    val voiceCommandListener = VoiceCommandListener(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceCommandListener") }
 
     // --- Platform adapters ---
-    private val accelerometer: AccelerometerSource = AndroidAccelerometer(application)
-    private val realLocationSource: LocationSource = AndroidLocationSource(application)
-    private val circuitLocationSource: LocationSource = CircuitLocationSource(application)
+    private val accelerometer: AccelerometerSource = AndroidAccelerometer(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms accelerometer") }
+    private val realLocationSource: LocationSource = AndroidLocationSource(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms locationSource") }
+    private val circuitLocationSource: LocationSource = CircuitLocationSource(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms circuitSrc") }
     private var activeLocationSource: LocationSource = realLocationSource
 
     // --- Server URL (persisted, read-only in UI) ---
@@ -80,7 +86,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         deviceId = deviceId,
         appVersion = appVersion,
         serverUrl = serverUrl,
-    )
+    ).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms hitReporter — ViewModel constructor DONE") }
 
     // --- Location tracking for bearing before/after ---
     private val locationHistory = ArrayDeque<LocationReading>(100)

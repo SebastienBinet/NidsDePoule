@@ -112,7 +112,7 @@ fun MainScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "v6 TEAL",
+                text = "v7 ALLOFF",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,

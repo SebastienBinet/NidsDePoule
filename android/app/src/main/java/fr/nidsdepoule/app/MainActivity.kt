@@ -42,11 +42,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val t0 = System.currentTimeMillis()
+        android.util.Log.d("NDP_INIT", "onCreate START")
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
+        android.util.Log.d("NDP_INIT", "+${System.currentTimeMillis()-t0}ms after ViewModel")
 
         // Keep screen on while detection is active
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        android.util.Log.d("NDP_INIT", "+${System.currentTimeMillis()-t0}ms before setContent")
         setContent {
             NidsDePouleTheme {
                 Surface(
@@ -104,13 +108,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        android.util.Log.d("NDP_INIT", "setContent done (returned)")
     }
 
     override fun onResume() {
         super.onResume()
+        android.util.Log.d("NDP_INIT", "onResume")
         if (hasLocationPermission()) {
             // Defer to let Compose render the first frame before heavy init
-            window.decorView.post { startDetection() }
+            window.decorView.post {
+                android.util.Log.d("NDP_INIT", "startDetection (deferred) START")
+                startDetection()
+                android.util.Log.d("NDP_INIT", "startDetection (deferred) END")
+            }
         } else {
             locationPermissionLauncher.launch(
                 arrayOf(
