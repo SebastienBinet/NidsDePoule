@@ -9,9 +9,9 @@ object DebugFlags {
     /** Disable the osmdroid MapView widget entirely */
     const val DISABLE_MAP = true
     /** Disable accelerometer sensor registration */
-    const val DISABLE_ACCELEROMETER = true
+    const val DISABLE_ACCELEROMETER = false
     /** Disable GPS / location source */
-    const val DISABLE_LOCATION = true
+    const val DISABLE_LOCATION = false
     /** Disable the foreground DetectionService */
     const val DISABLE_SERVICE = true
     /** Disable voice command listener (audio capture + MFCC) */
@@ -19,5 +19,5 @@ object DebugFlags {
     /** Disable TTS (text-to-speech) initialization */
     const val DISABLE_TTS = true
     /** Disable network connectivity check */
-    const val DISABLE_NETWORK = true
+    const val DISABLE_NETWORK = false
 }
