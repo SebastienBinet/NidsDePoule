@@ -1,5 +1,6 @@
 package fr.nidsdepoule.app.ui
 
+import android.content.Context
 import android.graphics.drawable.GradientDrawable
 import android.view.ViewGroup
 import androidx.compose.animation.core.*
@@ -24,6 +25,9 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * Type of map marker event.
@@ -62,7 +66,17 @@ fun RouteMapWidget(
     var mapReady by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        Configuration.getInstance().userAgentValue = context.packageName
+        // Pre-load osmdroid Configuration on a background thread.
+        // This does SharedPreferences + filesystem I/O that would otherwise
+        // run inside MapView's constructor and block the main thread → ANR.
+        withContext(Dispatchers.IO) {
+            val config = Configuration.getInstance()
+            config.userAgentValue = context.packageName
+            config.load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+        }
+        // Yield so the UI can process pending input events before the
+        // MapView constructor (which still does some main-thread work).
+        delay(200)
         mapReady = true
     }
 

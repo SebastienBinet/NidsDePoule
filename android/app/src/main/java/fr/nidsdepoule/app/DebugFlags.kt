@@ -13,11 +13,11 @@ object DebugFlags {
     /** Disable GPS / location source */
     const val DISABLE_LOCATION = false
     /** Disable the foreground DetectionService */
-    const val DISABLE_SERVICE = true
+    const val DISABLE_SERVICE = false
     /** Disable voice command listener (audio capture + MFCC) */
-    const val DISABLE_VOICE = true
+    const val DISABLE_VOICE = false
     /** Disable TTS (text-to-speech) initialization */
-    const val DISABLE_TTS = true
+    const val DISABLE_TTS = false
     /** Disable network connectivity check */
     const val DISABLE_NETWORK = false
 }
