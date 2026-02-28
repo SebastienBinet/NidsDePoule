@@ -66,11 +66,16 @@ class HitProcessor:
         if not hits:
             return True, "", 0
 
-        # Record stats
+        # Extract last known location for device tracking
+        last_hit = hits[-1]
+        hit_lat = last_hit.location.lat_microdeg / 1_000_000 if last_hit.location.lat_microdeg else None
+        hit_lon = last_hit.location.lon_microdeg / 1_000_000 if last_hit.location.lon_microdeg else None
+
+        # Record stats (with device location)
         if is_batch:
-            self._stats.record_batch(msg.device_id, len(hits), size_bytes)
+            self._stats.record_batch(msg.device_id, len(hits), size_bytes, lat=hit_lat, lon=hit_lon)
         else:
-            self._stats.record_hit(msg.device_id, size_bytes)
+            self._stats.record_hit(msg.device_id, size_bytes, lat=hit_lat, lon=hit_lon)
 
         # Enqueue each hit
         stored = 0

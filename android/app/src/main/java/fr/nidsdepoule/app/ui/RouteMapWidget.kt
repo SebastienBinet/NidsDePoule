@@ -3,6 +3,7 @@ package fr.nidsdepoule.app.ui
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,17 +15,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.sensor.LocationReading
+import kotlin.math.cos
 
 /**
  * Type of map marker event.
@@ -44,9 +46,11 @@ data class MapMarkerData(
 /**
  * Lightweight route widget drawn with Compose Canvas + async OSM tiles.
  *
- * Uses Mercator projection for correct tile alignment.
- * Tiles are fetched asynchronously by [OsmTileLoader] — zero main-thread I/O.
- * Missing tiles show as dark background (graceful offline degradation).
+ * Features:
+ * - Mercator projection for correct tile alignment
+ * - Minimum 100m radius around current position
+ * - Touch to expand to 1km radius, animated 1s transition back
+ * - Tiles fetched asynchronously by [OsmTileLoader]
  */
 @Composable
 fun RouteMapWidget(
@@ -58,6 +62,14 @@ fun RouteMapWidget(
 
     // Observe tile loader revision so we recompose when new tiles arrive
     val tileRevision by OsmTileLoader.revision
+
+    // Touch state: expand to 1km when touched
+    var isTouched by remember { mutableStateOf(false) }
+    val minRadiusM by animateFloatAsState(
+        targetValue = if (isTouched) 1000f else 100f,
+        animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+        label = "minRadius",
+    )
 
     // Flash animation for recent markers
     val infiniteTransition = rememberInfiniteTransition(label = "markerFlash")
@@ -85,24 +97,36 @@ fun RouteMapWidget(
         return
     }
 
+    // Current position (last GPS reading)
+    val curLat = locationHistory.last().latMicrodeg / 1_000_000.0
+    val curLon = locationHistory.last().lonMicrodeg / 1_000_000.0
+
     // Collect all points (route + markers) in degrees
     val allLats = locationHistory.map { it.latMicrodeg / 1_000_000.0 } +
             markers.map { it.latMicrodeg / 1_000_000.0 }
     val allLons = locationHistory.map { it.lonMicrodeg / 1_000_000.0 } +
             markers.map { it.lonMicrodeg / 1_000_000.0 }
 
-    val minLat = allLats.min()
-    val maxLat = allLats.max()
-    val minLon = allLons.min()
-    val maxLon = allLons.max()
+    var minLat = allLats.min()
+    var maxLat = allLats.max()
+    var minLon = allLons.min()
+    var maxLon = allLons.max()
 
-    // Convert to Mercator Y for correct projection
-    val minMercY = OsmTileLoader.latToMercatorY(maxLat) // note: higher lat = lower mercY
-    val maxMercY = OsmTileLoader.latToMercatorY(minLat)
-    val mercYSpan = maxOf(maxMercY - minMercY, 0.0001)
-    val lonSpan = maxOf(maxLon - minLon, 0.0001)
+    // Enforce minimum radius around current position
+    // 1 degree latitude ≈ 111,320 meters
+    // 1 degree longitude ≈ 111,320 * cos(lat) meters
+    val metersPerDegLat = 111_320.0
+    val metersPerDegLon = 111_320.0 * cos(Math.toRadians(curLat))
+    val minRadiusDegLat = minRadiusM / metersPerDegLat
+    val minRadiusDegLon = if (metersPerDegLon > 0) minRadiusM / metersPerDegLon else minRadiusDegLat
 
-    // Pick zoom level: find z where the route fits within ~4 tiles width
+    // Expand bounds to ensure minimum radius around current position
+    minLat = minOf(minLat, curLat - minRadiusDegLat)
+    maxLat = maxOf(maxLat, curLat + minRadiusDegLat)
+    minLon = minOf(minLon, curLon - minRadiusDegLon)
+    maxLon = maxOf(maxLon, curLon + minRadiusDegLon)
+
+    // Pick zoom level: find z where the viewport fits within ~5 tiles
     val z = run {
         var zoom = 18
         while (zoom > 2) {
@@ -110,27 +134,19 @@ fun RouteMapWidget(
                     OsmTileLoader.lonToTileX(minLon, zoom) + 1
             val tileCountY = OsmTileLoader.latToTileY(maxLat, zoom) -
                     OsmTileLoader.latToTileY(minLat, zoom) + 1
-            // Max ~5 tiles wide/tall to keep it manageable
             if (tileCountX <= 5 && tileCountY <= 5) break
             zoom--
         }
         zoom
     }
 
-    // Compute tile range for current viewport (with 1-tile padding)
+    // Compute tile range (with 1-tile padding)
     val minTileX = OsmTileLoader.lonToTileX(minLon, z) - 1
     val maxTileX = OsmTileLoader.lonToTileX(maxLon, z) + 1
-    val minTileY = OsmTileLoader.latToTileY(maxLat, z) - 1 // higher lat = lower tile Y
+    val minTileY = OsmTileLoader.latToTileY(maxLat, z) - 1
     val maxTileY = OsmTileLoader.latToTileY(minLat, z) + 1
 
-    // World coordinates: each tile is 256 "world pixels" at this zoom
-    // Tile (tx, ty) covers world pixels [tx*256, (tx+1)*256) x [ty*256, (ty+1)*256)
-    val worldMinX = minTileX * 256.0
-    val worldMaxX = (maxTileX + 1) * 256.0
-    val worldMinY = minTileY * 256.0
-    val worldMaxY = (maxTileY + 1) * 256.0
-
-    // Convert lat/lon to world pixel coordinates
+    // World pixel coordinates at this zoom level
     val n = (1 shl z).toDouble()
     fun lonToWorldX(lon: Double): Double = (lon + 180.0) / 360.0 * n * 256.0
     fun latToWorldY(lat: Double): Double {
@@ -138,17 +154,15 @@ fun RouteMapWidget(
         return (1.0 - Math.log(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) / 2.0 * n * 256.0
     }
 
-    // Compute route bounding box in world pixels (with padding)
+    // Route bounding box in world pixels + 20% padding
     val routeWorldMinX = lonToWorldX(minLon)
     val routeWorldMaxX = lonToWorldX(maxLon)
     val routeWorldMinY = latToWorldY(maxLat)
     val routeWorldMaxY = latToWorldY(minLat)
     val routeWorldW = maxOf(routeWorldMaxX - routeWorldMinX, 10.0)
     val routeWorldH = maxOf(routeWorldMaxY - routeWorldMinY, 10.0)
-
-    // Add 20% padding
-    val padX = routeWorldW * 0.2
-    val padY = routeWorldH * 0.2
+    val padX = routeWorldW * 0.15
+    val padY = routeWorldH * 0.15
     val vpWorldMinX = routeWorldMinX - padX
     val vpWorldMaxX = routeWorldMaxX + padX
     val vpWorldMinY = routeWorldMinY - padY
@@ -163,7 +177,6 @@ fun RouteMapWidget(
     val bgColor = Color(0xFF1B1B2F)
     val now = System.currentTimeMillis()
 
-    // Use tileRevision to ensure recomposition when tiles load
     @Suppress("UNUSED_EXPRESSION")
     tileRevision
 
@@ -172,7 +185,16 @@ fun RouteMapWidget(
             .fillMaxWidth()
             .height(180.dp)
             .clip(shape)
-            .background(bgColor),
+            .background(bgColor)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        isTouched = true
+                        tryAwaitRelease()
+                        isTouched = false
+                    },
+                )
+            },
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
@@ -185,9 +207,7 @@ fun RouteMapWidget(
             }
 
             fun geoToScreen(latDeg: Double, lonDeg: Double): Offset {
-                val wx = lonToWorldX(lonDeg)
-                val wy = latToWorldY(latDeg)
-                return worldToScreen(wx, wy)
+                return worldToScreen(lonToWorldX(lonDeg), latToWorldY(latDeg))
             }
 
             // Draw tiles
@@ -196,15 +216,16 @@ fun RouteMapWidget(
                     val tile = OsmTileLoader.getTile(z, tx, ty)
                     if (tile != null) {
                         val tileTopLeft = worldToScreen(tx * 256.0, ty * 256.0)
-                        val tileBottomRight = worldToScreen((tx + 1) * 256.0, (ty + 1) * 256.0)
-                        val tileW = tileBottomRight.x - tileTopLeft.x
-                        val tileH = tileBottomRight.y - tileTopLeft.y
+                        val tileBR = worldToScreen((tx + 1) * 256.0, (ty + 1) * 256.0)
                         drawImage(
                             image = tile,
                             srcOffset = IntOffset.Zero,
                             srcSize = IntSize(tile.width, tile.height),
                             dstOffset = IntOffset(tileTopLeft.x.toInt(), tileTopLeft.y.toInt()),
-                            dstSize = IntSize(tileW.toInt(), tileH.toInt()),
+                            dstSize = IntSize(
+                                (tileBR.x - tileTopLeft.x).toInt(),
+                                (tileBR.y - tileTopLeft.y).toInt(),
+                            ),
                         )
                     }
                 }
@@ -225,7 +246,6 @@ fun RouteMapWidget(
                     )
                     path.lineTo(pt.x, pt.y)
                 }
-                // White outline for contrast on tiles
                 drawPath(
                     path,
                     color = Color.White.copy(alpha = 0.5f),
@@ -260,11 +280,7 @@ fun RouteMapWidget(
             }
 
             // Draw current position
-            val last = locationHistory.last()
-            val curPos = geoToScreen(
-                last.latMicrodeg / 1_000_000.0,
-                last.lonMicrodeg / 1_000_000.0,
-            )
+            val curPos = geoToScreen(curLat, curLon)
             drawCircle(color = currentPosColor, radius = 8f, center = curPos)
             drawCircle(
                 color = Color.White,

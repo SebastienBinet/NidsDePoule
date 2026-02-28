@@ -57,6 +57,7 @@ fun MainScreen(
     onDevModeTap: () -> Unit,
     onAlmost: () -> Unit = {},
     onHit: () -> Unit = {},
+    onCancel: () -> Unit = {},
     hitFlashActive: Boolean = false,
     hitFlashText: String = "HIT!",
     isSimulating: Boolean = false,
@@ -74,6 +75,7 @@ fun MainScreen(
     voiceTrainingLabel: String = "",
     onAlmostLongPress: () -> Unit = {},
     onHitLongPress: () -> Unit = {},
+    onCancelLongPress: () -> Unit = {},
     onVoiceTrainingDismiss: () -> Unit = {},
     onVoiceTrainingComplete: () -> Unit = {},
     profileStore: VoiceProfileStore? = null,
@@ -113,7 +115,7 @@ fun MainScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "v15 TILES",
+                text = "v16 NON",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -162,8 +164,10 @@ fun MainScreen(
         ReportButtonsPanel(
             onAlmost = onAlmost,
             onHit = onHit,
+            onCancel = onCancel,
             onAlmostLongPress = onAlmostLongPress,
             onHitLongPress = onHitLongPress,
+            onCancelLongPress = onCancelLongPress,
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -532,8 +536,10 @@ private fun HitCounterCard(
 private fun ReportButtonsPanel(
     onAlmost: () -> Unit,
     onHit: () -> Unit,
+    onCancel: () -> Unit = {},
     onAlmostLongPress: () -> Unit = {},
     onHitLongPress: () -> Unit = {},
+    onCancelLongPress: () -> Unit = {},
 ) {
     val btnHeight = 72.dp
 
@@ -590,6 +596,32 @@ private fun ReportButtonsPanel(
                     text = stringResource(R.string.btn_hit_hint),
                     fontSize = 9.sp,
                     color = Color.White,
+                )
+            }
+        }
+        // Cancel button (grey/blue) — long-press for voice training
+        Box(
+            modifier = Modifier
+                .weight(0.5f)
+                .height(btnHeight)
+                .background(Color(0xFF546E7A), RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = onCancel,
+                    onLongClick = onCancelLongPress,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = stringResource(R.string.btn_cancel),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                )
+                Text(
+                    text = stringResource(R.string.btn_cancel_hint),
+                    fontSize = 8.sp,
+                    color = Color.White.copy(alpha = 0.8f),
                 )
             }
         }

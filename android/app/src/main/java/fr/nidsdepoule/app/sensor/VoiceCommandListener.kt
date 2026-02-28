@@ -23,6 +23,7 @@ import fr.nidsdepoule.app.sensor.audio.VoiceProfileStore
  * Listens for spoken keywords and fires callbacks:
  *   - "Almost" sounds → onAlmost  (e.g. "iiiii", "attention", "ouf")
  *   - "Hit" sounds    → onHit     (e.g. "ayoye", "ouch", "merde")
+ *   - "Cancel" sounds → onCancel  (e.g. "non", "no", "annule")
  */
 class VoiceCommandListener(private val context: Context) {
 
@@ -45,7 +46,12 @@ class VoiceCommandListener(private val context: Context) {
             "ayoye", "ouch", "aille", "merde", "shit", "bang",
         )
 
-        val ALL_KEYWORDS: List<String> = ALMOST_KEYWORDS + HIT_KEYWORDS
+        // Keywords that cancel the last voice-triggered report.
+        val CANCEL_KEYWORDS = listOf(
+            "non", "no", "annule",
+        )
+
+        val ALL_KEYWORDS: List<String> = ALMOST_KEYWORDS + HIT_KEYWORDS + CANCEL_KEYWORDS
     }
 
     /** Callback when an "Almost" voice command is detected. */
@@ -54,9 +60,15 @@ class VoiceCommandListener(private val context: Context) {
     /** Callback when a "Hit" voice command is detected. */
     var onHit: (() -> Unit)? = null
 
+    /** Callback when a "Cancel" voice command is detected (within 2s of last trigger). */
+    var onCancel: (() -> Unit)? = null
+
     /** Observable state for the UI — true when microphone is actively listening. */
     var isListening by mutableStateOf(false)
         private set
+
+    /** Set to true during voice training to suppress matching. */
+    var trainingActive = false
 
     /**
      * Dev-mode observable: real-time match scores for each keyword.
@@ -131,6 +143,7 @@ class VoiceCommandListener(private val context: Context) {
      */
     private fun processSpeechSegment(pcm: ShortArray) {
         if (profiles.isEmpty()) return
+        if (trainingActive) return // Mute during training
 
         val mfcc = mfccExtractor.extract(pcm)
         if (mfcc.isEmpty()) return
@@ -161,6 +174,19 @@ class VoiceCommandListener(private val context: Context) {
 
         if (bestDist < MATCH_THRESHOLD) {
             val now = System.currentTimeMillis()
+
+            // Cancel keyword: allowed during cooldown (that's the point)
+            if (bestName in CANCEL_KEYWORDS) {
+                if (now - lastTriggerMs < COOLDOWN_MS) {
+                    Log.i(TAG, "Voice cancel: '$bestName' (dist=${"%.1f".format(bestDist)})")
+                    mainHandler.post { onCancel?.invoke() }
+                } else {
+                    Log.d(TAG, "Cancel keyword outside undo window — ignoring")
+                }
+                return
+            }
+
+            // Regular keyword: respect cooldown
             if (now - lastTriggerMs < COOLDOWN_MS) {
                 Log.d(TAG, "Cooldown — ignoring match")
                 return

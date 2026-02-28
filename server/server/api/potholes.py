@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from server.core.clustering import cluster_hits, clusters_to_geojson
@@ -34,6 +34,26 @@ async def get_potholes() -> JSONResponse:
     clusters = cluster_hits(raw_hits)
     geojson = clusters_to_geojson(clusters)
     return JSONResponse(content=geojson, media_type="application/geo+json")
+
+
+@router.delete("/hits")
+async def delete_hits(request: Request) -> JSONResponse:
+    """Delete hit records by their record IDs.
+
+    Body: {"record_ids": [1, 2, 3]}
+    Used by the dashboard eraser tool.
+    """
+    import json as json_mod
+
+    from server.main import get_storage
+
+    body = json_mod.loads(await request.body())
+    record_ids = set(body.get("record_ids", []))
+    if not record_ids:
+        return JSONResponse(content={"deleted": 0})
+
+    deleted = get_storage().delete_hits(record_ids)
+    return JSONResponse(content={"deleted": deleted})
 
 
 def _hit_to_detail(record: dict) -> dict:

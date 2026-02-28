@@ -189,8 +189,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Wire voice command listener
         if (!DebugFlags.DISABLE_VOICE) {
-            voiceCommandListener.onAlmost = { onReportAlmost() }
-            voiceCommandListener.onHit = { onReportHit() }
+            voiceCommandListener.onAlmost = { onVoiceAlmost() }
+            voiceCommandListener.onHit = { onVoiceHit() }
+            voiceCommandListener.onCancel = { cancelPendingVoiceReport() }
         }
     }
 
@@ -271,7 +272,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Report buttons ---
 
     /** "iiiiiiiii !!!" — there's a pothole near me (Almost). Geo only, no accel data. */
-    fun onReportAlmost() {
+    fun onReportAlmost(fromVoice: Boolean = false) {
         val location = lastLocation ?: return
         val event = HitEvent(
             timestampMs = System.currentTimeMillis(),
@@ -286,9 +287,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             source = ReportSource.ALMOST,
         )
         hitsDetected++
-        // Add map marker at current position
         addMapMarker(location, MapMarkerType.ALMOST)
-        sendReport(event, location, "iiiiiiiii !!!")
+        sendReport(event, location, "iiiiiiiii !!!", fromVoice = fromVoice)
     }
 
     /**
@@ -296,7 +296,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Finds the biggest acceleration peak in the last 30 seconds,
      * interpolates GPS position at that timestamp, and reports that position.
      */
-    fun onReportHit() {
+    fun onReportHit(fromVoice: Boolean = false) {
         // Find peak in the full 30s buffer and mark it on the graph
         val peakSample = accelBuffer.findAndMarkPeak()
         // Force graph update to show the tick mark
@@ -315,7 +315,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Add map marker at the interpolated peak position
         addMapMarker(location, MapMarkerType.HIT)
-        sendReport(event, location, "AYOYE !?!#\$!")
+        sendReport(event, location, "AYOYE !?!#\$!", fromVoice = fromVoice)
     }
 
     /** Build a HitEvent from the last 30 seconds of accelerometer data. */
@@ -420,19 +420,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         voiceTrainingKeywords = keywords
         voiceTrainingLabel = label
         showVoiceTraining = true
+        voiceCommandListener.trainingActive = true
     }
 
     fun onVoiceTrainingDismiss() {
         showVoiceTraining = false
+        voiceCommandListener.trainingActive = false
     }
 
     fun onVoiceTrainingComplete() {
         showVoiceTraining = false
+        voiceCommandListener.trainingActive = false
         // Reload profiles so the listener uses the new templates
         voiceCommandListener.reloadProfiles()
     }
 
-    private fun sendReport(event: HitEvent, location: LocationReading, flashText: String = "HIT!") {
+    // --- Voice-triggered reports with 2-second cancel window ---
+
+    private var pendingVoiceSend: Runnable? = null
+
+    /** Voice-triggered Almost — delayed 2s to allow "non" cancellation. */
+    private fun onVoiceAlmost() {
+        onReportAlmost(fromVoice = true)
+    }
+
+    /** Voice-triggered Hit — delayed 2s to allow "non" cancellation. */
+    private fun onVoiceHit() {
+        onReportHit(fromVoice = true)
+    }
+
+    /** Cancel the pending voice-triggered report (user said "non"). */
+    fun cancelPendingVoiceReport() {
+        val pending = pendingVoiceSend ?: return
+        mainHandler.removeCallbacks(pending)
+        pendingVoiceSend = null
+        triggerHitFlash("Annulé !")
+    }
+
+    /** "Non" button pressed manually — cancel the last voice-triggered report. */
+    fun onReportCancel() {
+        cancelPendingVoiceReport()
+    }
+
+    private fun sendReport(event: HitEvent, location: LocationReading, flashText: String = "HIT!", fromVoice: Boolean = false) {
         triggerHitFlash(flashText)
         if (!voiceMuted) {
             voiceFeedback.speakHit(event.severity)
@@ -440,7 +470,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val bearingBefore = computeBearingBefore()
         val bearingAfter = location.bearingDeg
         val report = HitReportData.create(event, location, bearingBefore, bearingAfter)
-        hitReporter.report(report)
+
+        if (fromVoice) {
+            // Voice-triggered: delay 2s to allow "non" cancellation
+            val sendRunnable = Runnable {
+                pendingVoiceSend = null
+                hitReporter.report(report)
+            }
+            // Cancel any previous pending send
+            pendingVoiceSend?.let { mainHandler.removeCallbacks(it) }
+            pendingVoiceSend = sendRunnable
+            mainHandler.postDelayed(sendRunnable, 2000)
+        } else {
+            // Manual button press: send immediately
+            hitReporter.report(report)
+        }
     }
 
     // --- Data usage accessors (for UI) ---

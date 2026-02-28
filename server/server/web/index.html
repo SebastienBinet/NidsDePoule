@@ -99,6 +99,16 @@
   .popup-value { font-weight: 600; }
   .waveform-mini { margin-top: 6px; }
   .waveform-mini canvas { border: 1px solid #e5e7eb; border-radius: 4px; }
+
+  /* Eraser cursor */
+  .eraser-cursor { cursor: crosshair !important; }
+
+  /* Green pulsing dot for active devices */
+  @keyframes pulse-green {
+    0% { box-shadow: 0 0 0 0 rgba(0,200,83,0.5); }
+    70% { box-shadow: 0 0 0 8px rgba(0,200,83,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,200,83,0); }
+  }
 </style>
 </head>
 <body>
@@ -106,12 +116,12 @@
 <div id="map"></div>
 
 <div id="panel">
-  <h1>NidsDePoule <span style="background:#9c27b0;color:#fff;font-size:10px;padding:2px 6px;border-radius:3px;vertical-align:middle">v5 PURPLE</span></h1>
+  <h1>NidsDePoule <span style="background:#009688;color:#fff;font-size:10px;padding:2px 6px;border-radius:3px;vertical-align:middle">v16 NON</span></h1>
   <div class="stats">
     Clusters: <span id="cluster-count">-</span> &middot;
     Hits: <span id="hit-count">-</span> &middot;
-    Devices: <span id="device-count">-</span> &middot;
-    <span style="color:#00c853">&#9679;</span> <span id="hl-count">0</span>
+    Phones: <span style="color:#00c853">&#9679;</span> <span id="device-count">0</span> &middot;
+    <span style="color:#00e676">&#9679;</span> <span id="hl-count">0</span>
   </div>
   <div class="btn-row">
     <button class="btn active" id="btn-clusters" onclick="toggleLayer('clusters')">Clusters</button>
@@ -119,6 +129,8 @@
     <button class="btn" id="btn-table" onclick="toggleDrawer()">Hit table</button>
     <button class="btn" onclick="loadAll(true)">Refresh</button>
     <button class="btn" id="btn-autorefresh" onclick="toggleAutoRefresh()">Auto-refresh</button>
+    <button class="btn" id="btn-eraser-s" onclick="toggleEraser(20)">Eraser S</button>
+    <button class="btn" id="btn-eraser-l" onclick="toggleEraser(100)">Eraser L</button>
   </div>
   <div class="ctrl-row">
     <label>Circles on latest:</label>
@@ -144,6 +156,8 @@
   <div class="legend-item"><div class="legend-dot" style="background:#6b7280"></div> Auto-detected</div>
   <div class="legend-title" style="margin-top:6px">Highlight</div>
   <div class="legend-item"><div class="legend-dot" style="background:rgba(0,230,118,0.25);border-color:#00e676"></div> Recent hit (circle)</div>
+  <div class="legend-title" style="margin-top:6px">Live</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#00c853;border-color:#00c853"></div> Active phone</div>
 </div>
 
 <div id="hit-drawer">
@@ -233,6 +247,71 @@ function toggleAutoRefresh() {
   }
 }
 
+// --- Eraser tool ---
+let eraserRadiusM = 0;  // 0 = off, 20 or 100
+
+function toggleEraser(radiusM) {
+  const btnS = document.getElementById('btn-eraser-s');
+  const btnL = document.getElementById('btn-eraser-l');
+  if (eraserRadiusM === radiusM) {
+    // Turn off
+    eraserRadiusM = 0;
+    btnS.classList.remove('active');
+    btnL.classList.remove('active');
+    map.getCanvas().classList.remove('eraser-cursor');
+  } else {
+    eraserRadiusM = radiusM;
+    btnS.classList.toggle('active', radiusM === 20);
+    btnL.classList.toggle('active', radiusM === 100);
+    map.getCanvas().classList.add('eraser-cursor');
+  }
+}
+
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// --- Load active devices (green dots) ---
+function loadDevices() {
+  return fetch('/api/v1/devices/active').then(r => r.json()).then(devices => {
+    document.getElementById('device-count').textContent = devices.length;
+
+    // Remove old layer/source.
+    if (map.getLayer('devices-dots')) map.removeLayer('devices-dots');
+    if (map.getSource('devices-src')) map.removeSource('devices-src');
+
+    if (devices.length === 0) return;
+
+    const features = devices.map(d => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [d.lon, d.lat] },
+      properties: { device_id: d.device_id, seconds_ago: d.seconds_ago },
+    }));
+
+    map.addSource('devices-src', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features },
+    });
+
+    map.addLayer({
+      id: 'devices-dots',
+      type: 'circle',
+      source: 'devices-src',
+      paint: {
+        'circle-radius': 8,
+        'circle-color': '#00c853',
+        'circle-opacity': 0.85,
+        'circle-stroke-width': 2.5,
+        'circle-stroke-color': '#ffffff',
+      },
+    });
+  }).catch(() => {});
+}
+
 // --- Highlight recent hits (circles around latest hits) ---
 function updateHighlights() {
   const countEl = document.getElementById('hl-count');
@@ -285,7 +364,6 @@ function loadClusters(fitMap) {
     const features = geojson.features || [];
     document.getElementById('cluster-count').textContent = features.length;
     document.getElementById('hit-count').textContent = features.reduce((s,f) => s + f.properties.hit_count, 0);
-    document.getElementById('device-count').textContent = features.reduce((s,f) => s + f.properties.devices, 0);
 
     // Remove old layers.
     ['potholes-circles','potholes-labels'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
@@ -499,15 +577,49 @@ function toggleDrawer() {
 function loadAll(fitMap) {
   loadClusters(!!fitMap);
   loadHits();
+  loadDevices();
 }
 
 // --- Click handlers ---
+
+// Eraser click: intercept all map clicks when eraser mode is active.
+map.on('click', e => {
+  if (eraserRadiusM === 0) return;
+  const clickLat = e.lngLat.lat;
+  const clickLon = e.lngLat.lng;
+
+  // Find all hits within eraser radius.
+  const toDelete = allHitsData.filter(h =>
+    haversineM(clickLat, clickLon, h.location.lat, h.location.lon) <= eraserRadiusM
+  );
+
+  if (toDelete.length === 0) return;
+
+  const ok = confirm(`Delete ${toDelete.length} hit(s) within ${eraserRadiusM}m?`);
+  if (!ok) return;
+
+  const ids = toDelete.map(h => h.record_id);
+  fetch('/api/v1/hits', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ record_ids: ids }),
+  })
+  .then(r => r.json())
+  .then(result => {
+    console.log('Eraser deleted:', result.deleted);
+    loadAll(false);
+  })
+  .catch(err => console.error('Eraser delete failed:', err));
+});
+
 map.on('click', 'hits-points', e => {
+  if (eraserRadiusM > 0) return;  // eraser mode handles clicks
   const idx = e.features[0].properties._idx;
   const h = allHitsData[idx];
   if (h) showHitPopup(h);
 });
 map.on('click', 'potholes-circles', e => {
+  if (eraserRadiusM > 0) return;  // eraser mode handles clicks
   if (currentPopup) currentPopup.remove();
   const f = e.features[0];
   const p = f.properties;
@@ -532,10 +644,10 @@ map.on('click', 'potholes-circles', e => {
   currentPopup = new maplibregl.Popup({ offset: 12 }).setLngLat(coords).setHTML(html).addTo(map);
 });
 
-map.on('mouseenter', 'potholes-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
-map.on('mouseleave', 'potholes-circles', () => { map.getCanvas().style.cursor = ''; });
-map.on('mouseenter', 'hits-points', () => { map.getCanvas().style.cursor = 'pointer'; });
-map.on('mouseleave', 'hits-points', () => { map.getCanvas().style.cursor = ''; });
+map.on('mouseenter', 'potholes-circles', () => { if (!eraserRadiusM) map.getCanvas().style.cursor = 'pointer'; });
+map.on('mouseleave', 'potholes-circles', () => { if (!eraserRadiusM) map.getCanvas().style.cursor = ''; });
+map.on('mouseenter', 'hits-points', () => { if (!eraserRadiusM) map.getCanvas().style.cursor = 'pointer'; });
+map.on('mouseleave', 'hits-points', () => { if (!eraserRadiusM) map.getCanvas().style.cursor = ''; });
 
 map.on('load', () => {
   loadAll(true);

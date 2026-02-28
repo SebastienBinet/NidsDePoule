@@ -5,6 +5,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.SystemClock
 
 /**
  * Android platform adapter for the accelerometer.
@@ -33,7 +34,13 @@ class AndroidAccelerometer(context: Context) : AccelerometerSource {
                 val x = (event.values[0] * factor).toInt()
                 val y = (event.values[1] * factor).toInt()
                 val z = (event.values[2] * factor).toInt()
-                val timestampMs = event.timestamp / 1_000_000  // nano -> ms
+                // Convert sensor boot-time nanos to wall-clock millis.
+                // SensorEvent.timestamp is nanoseconds since boot, but
+                // LocationReading uses System.currentTimeMillis(). Without
+                // this conversion, interpolateLocation() can't match them.
+                val sensorBootMs = event.timestamp / 1_000_000
+                val bootMs = SystemClock.elapsedRealtime()
+                val timestampMs = System.currentTimeMillis() - (bootMs - sensorBootMs)
                 callback.onReading(timestampMs, x, y, z)
             }
 

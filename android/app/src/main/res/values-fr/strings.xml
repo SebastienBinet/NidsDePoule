@@ -16,6 +16,8 @@
     <!-- Report buttons -->
     <string name="btn_almost_hint">Il y en a un proche !</string>
     <string name="btn_hit_hint">Je viens d\'en pogner un !</string>
+    <string name="btn_cancel">Non</string>
+    <string name="btn_cancel_hint">Mauvaise détection vocale</string>
 
     <!-- Hit counters -->
     <string name="hits_detected">Détectés</string>

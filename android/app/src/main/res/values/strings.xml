@@ -18,6 +18,8 @@
     <string name="btn_hit">AYOYE !?!#$!</string>
     <string name="btn_almost_hint">There\'s one near me!</string>
     <string name="btn_hit_hint">Just hit one!</string>
+    <string name="btn_cancel">Non</string>
+    <string name="btn_cancel_hint">Bad voice detection</string>
 
     <!-- Hit counters -->
     <string name="hits_detected">Detected</string>

@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
                         devModeEnabled = viewModel.devModeEnabled,
                         onAlmost = { viewModel.onReportAlmost() },
                         onHit = { viewModel.onReportHit() },
+                        onCancel = { viewModel.onReportCancel() },
                         hitFlashActive = viewModel.hitFlashActive,
                         hitFlashText = viewModel.hitFlashText,
                         isSimulating = viewModel.isSimulating,
@@ -97,6 +98,11 @@ class MainActivity : ComponentActivity() {
                         onHitLongPress = {
                             viewModel.startVoiceTraining(
                                 VoiceCommandListener.HIT_KEYWORDS, "Hit"
+                            )
+                        },
+                        onCancelLongPress = {
+                            viewModel.startVoiceTraining(
+                                VoiceCommandListener.CANCEL_KEYWORDS, "Non"
                             )
                         },
                         onVoiceTrainingDismiss = { viewModel.onVoiceTrainingDismiss() },

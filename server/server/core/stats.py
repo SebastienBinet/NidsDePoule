@@ -17,6 +17,8 @@ class DeviceActivity:
     last_seen: float          # time.monotonic() timestamp
     reporting_mode: str       # "realtime" or "batch"
     hits_sent: int = 0
+    last_lat: float | None = None   # last known latitude (degrees)
+    last_lon: float | None = None   # last known longitude (degrees)
 
 
 class ServerStats:
@@ -48,7 +50,12 @@ class ServerStats:
         # Device tracking: device_id → DeviceActivity
         self._devices: dict[str, DeviceActivity] = {}
 
-    def record_hit(self, device_id: str, size_bytes: int, *, is_batch: bool = False) -> None:
+    def record_hit(
+        self, device_id: str, size_bytes: int, *,
+        is_batch: bool = False,
+        lat: float | None = None,
+        lon: float | None = None,
+    ) -> None:
         """Record that a hit was received from a device."""
         now = time.monotonic()
         with self._lock:
@@ -60,12 +67,20 @@ class ServerStats:
                 dev.last_seen = now
                 dev.reporting_mode = mode
                 dev.hits_sent += 1
+                if lat is not None:
+                    dev.last_lat = lat
+                    dev.last_lon = lon
             else:
                 self._devices[device_id] = DeviceActivity(
                     last_seen=now, reporting_mode=mode, hits_sent=1,
+                    last_lat=lat, last_lon=lon,
                 )
 
-    def record_batch(self, device_id: str, count: int, size_bytes: int) -> None:
+    def record_batch(
+        self, device_id: str, count: int, size_bytes: int, *,
+        lat: float | None = None,
+        lon: float | None = None,
+    ) -> None:
         """Record that a batch of hits was received."""
         now = time.monotonic()
         with self._lock:
@@ -77,9 +92,13 @@ class ServerStats:
                 dev.last_seen = now
                 dev.reporting_mode = "batch"
                 dev.hits_sent += count
+                if lat is not None:
+                    dev.last_lat = lat
+                    dev.last_lon = lon
             else:
                 self._devices[device_id] = DeviceActivity(
                     last_seen=now, reporting_mode="batch", hits_sent=count,
+                    last_lat=lat, last_lon=lon,
                 )
 
     def record_heartbeat(self, device_id: str) -> None:
@@ -115,6 +134,23 @@ class ServerStats:
         stale = [did for did, dev in self._devices.items() if dev.last_seen < cutoff]
         for did in stale:
             del self._devices[did]
+
+    def active_devices_with_locations(self) -> list[dict]:
+        """Return active devices with their last known GPS position."""
+        now_mono = time.monotonic()
+        with self._lock:
+            self._prune_stale_devices(now_mono)
+            return [
+                {
+                    "device_id": did[:8],
+                    "lat": dev.last_lat,
+                    "lon": dev.last_lon,
+                    "seconds_ago": round(now_mono - dev.last_seen, 1),
+                    "mode": dev.reporting_mode,
+                }
+                for did, dev in self._devices.items()
+                if dev.last_lat is not None
+            ]
 
     def snapshot(self) -> dict:
         """Return a JSON-serializable snapshot of all stats."""
