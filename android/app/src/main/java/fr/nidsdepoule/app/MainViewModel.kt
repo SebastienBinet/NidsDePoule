@@ -42,9 +42,8 @@ import kotlin.math.sqrt
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    companion object {
-        private const val TAG_INIT = "NDP_INIT"
-    }
+    // Timing tag — merged into companion object at bottom of class
+    private val TAG_INIT = "NDP_INIT"
 
     // --- Configuration ---
     private val t0 = System.currentTimeMillis().also { Log.d(TAG_INIT, "ViewModel constructor START") }
