@@ -20,13 +20,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import fr.nidsdepoule.app.sensor.LocationReading
 import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -60,24 +60,22 @@ fun RouteMapWidget(
 ) {
     val context = LocalContext.current
 
-    // Defer MapView creation until after the first frame renders.
-    // MapView constructor performs heavy I/O (SQLite tile cache, tile providers)
-    // that would block the main thread and cause ANR during initial composition.
-    var mapReady by remember { mutableStateOf(false) }
+    // The default MapView(ctx) constructor creates a MapTileProviderBasic
+    // internally, which opens an SQLite tile-cache database — heavy I/O that
+    // blocks the main thread and causes ANR.
+    //
+    // Fix: pre-build the tile provider on Dispatchers.IO, then pass it to
+    // MapView(ctx, tileProvider) so the constructor does no I/O.
+    var tileProvider by remember { mutableStateOf<MapTileProviderBasic?>(null) }
 
     LaunchedEffect(Unit) {
-        // Pre-load osmdroid Configuration on a background thread.
-        // This does SharedPreferences + filesystem I/O that would otherwise
-        // run inside MapView's constructor and block the main thread → ANR.
-        withContext(Dispatchers.IO) {
+        val provider = withContext(Dispatchers.IO) {
             val config = Configuration.getInstance()
             config.userAgentValue = context.packageName
             config.load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+            MapTileProviderBasic(context)
         }
-        // Yield so the UI can process pending input events before the
-        // MapView constructor (which still does some main-thread work).
-        delay(200)
-        mapReady = true
+        tileProvider = provider
     }
 
     // Flash animation for markers
@@ -94,14 +92,15 @@ fun RouteMapWidget(
 
     val shape = RoundedCornerShape(8.dp)
 
-    if (mapReady && !fr.nidsdepoule.app.DebugFlags.DISABLE_MAP) {
+    val provider = tileProvider
+    if (provider != null && !fr.nidsdepoule.app.DebugFlags.DISABLE_MAP) {
         AndroidView(
             modifier = modifier
                 .fillMaxWidth()
                 .height(180.dp)
                 .clip(shape),
             factory = { ctx ->
-                MapView(ctx).apply {
+                MapView(ctx, provider).apply {
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
