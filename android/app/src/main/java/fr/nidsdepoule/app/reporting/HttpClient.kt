@@ -24,4 +24,5 @@ data class HttpResult(
     val body: String = "",
     val error: String? = null,
     val bytesSent: Int = 0,
+    val bytesReceived: Int = 0,
 )

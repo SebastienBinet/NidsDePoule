@@ -7,10 +7,11 @@
     <string name="magnitude">G-force</string>
 
     <!-- Data usage -->
-    <string name="data_usage">Data sent</string>
-    <string name="last_minute">Last min</string>
-    <string name="last_hour">Last hour</string>
+    <string name="data_usage">Data transfer</string>
+    <string name="this_week">This week</string>
     <string name="this_month">This month</string>
+    <string name="data_upload">Upload</string>
+    <string name="data_download">Download</string>
 
     <!-- Report buttons -->
     <string name="btn_almost">iiiiiiiii !!!</string>

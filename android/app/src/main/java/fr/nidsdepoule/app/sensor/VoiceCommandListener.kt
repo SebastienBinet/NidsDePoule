@@ -92,6 +92,7 @@ class VoiceCommandListener(private val context: Context) {
         // Load profiles and start audio capture off the main thread
         // to avoid ANR (file I/O + audio hardware init).
         Thread({
+            profileStore.migrateIfNeeded()
             reloadProfiles()
 
             audioCapture.onSpeechSegment = { segment ->

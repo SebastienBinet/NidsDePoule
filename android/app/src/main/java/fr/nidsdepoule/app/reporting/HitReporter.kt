@@ -98,7 +98,7 @@ class HitReporter(
         if (result.success) {
             hitsSent++
             lastSendTimestampMs = System.currentTimeMillis()
-            dataUsageTracker.record(result.bytesSent)
+            dataUsageTracker.record(result.bytesSent, result.bytesReceived)
             onConnectivityChanged?.invoke(true)
         } else {
             hitsFailed++
@@ -149,7 +149,7 @@ class HitReporter(
         if (result.success) {
             hitsSent += hits.size
             lastSendTimestampMs = System.currentTimeMillis()
-            dataUsageTracker.record(result.bytesSent)
+            dataUsageTracker.record(result.bytesSent, result.bytesReceived)
             onConnectivityChanged?.invoke(true)
         } else {
             hitsFailed += hits.size

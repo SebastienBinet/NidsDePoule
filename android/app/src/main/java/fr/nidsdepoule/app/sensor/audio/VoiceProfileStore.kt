@@ -26,7 +26,7 @@ class VoiceProfileStore(private val context: Context) {
     }
 
     private val baseDir: File
-        get() = File(context.filesDir, DIR_NAME)
+        get() = File(context.getExternalFilesDir(null) ?: context.filesDir, DIR_NAME)
 
     /**
      * Save an MFCC template for a keyword.
@@ -122,6 +122,29 @@ class VoiceProfileStore(private val context: Context) {
      */
     fun clearAll() {
         baseDir.deleteRecursively()
+    }
+
+    /**
+     * Migrate profiles from internal storage to external storage (one-time).
+     * Call on app startup before loading profiles.
+     */
+    fun migrateIfNeeded() {
+        val oldDir = File(context.filesDir, DIR_NAME)
+        if (!oldDir.exists()) return
+        val newDir = baseDir
+        if (oldDir.absolutePath == newDir.absolutePath) return // fallback case
+        if (newDir.exists() && (newDir.listFiles()?.isNotEmpty() == true)) {
+            // Already migrated — clean up old dir
+            oldDir.deleteRecursively()
+            return
+        }
+        try {
+            oldDir.copyRecursively(newDir, overwrite = false)
+            oldDir.deleteRecursively()
+            Log.d(TAG, "Migrated voice profiles from internal to external storage")
+        } catch (e: Exception) {
+            Log.w(TAG, "Migration failed: ${e.message}")
+        }
     }
 
     // --- JSON serialization ---

@@ -7,10 +7,11 @@
     <string name="magnitude">Force G</string>
 
     <!-- Data usage -->
-    <string name="data_usage">Données envoyées</string>
-    <string name="last_minute">Dernière min</string>
-    <string name="last_hour">Dernière heure</string>
+    <string name="data_usage">Transfert de données</string>
+    <string name="this_week">Cette semaine</string>
     <string name="this_month">Ce mois</string>
+    <string name="data_upload">Envoi</string>
+    <string name="data_download">Téléch.</string>
 
     <!-- Report buttons -->
     <string name="btn_almost_hint">Il y en a un proche !</string>

@@ -47,9 +47,10 @@ fun MainScreen(
     hitsDetected: Int,
     hitsSent: Int,
     hitsPending: Int,
-    kbLastMinute: Float,
-    mbLastHour: Float,
-    mbThisMonth: Float,
+    mbUploadThisWeek: Float,
+    mbDownloadThisWeek: Float,
+    mbUploadThisMonth: Float,
+    mbDownloadThisMonth: Float,
     appVersion: String,
     buildTime: String,
     devModeEnabled: Boolean,
@@ -112,7 +113,7 @@ fun MainScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "v14 CANVAS",
+                text = "v15 TILES",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -211,9 +212,10 @@ fun MainScreen(
 
         // Data usage
         DataUsageCard(
-            kbLastMinute = kbLastMinute,
-            mbLastHour = mbLastHour,
-            mbThisMonth = mbThisMonth,
+            mbUploadThisWeek = mbUploadThisWeek,
+            mbDownloadThisWeek = mbDownloadThisWeek,
+            mbUploadThisMonth = mbUploadThisMonth,
+            mbDownloadThisMonth = mbDownloadThisMonth,
         )
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -390,9 +392,10 @@ private fun StatusChip(label: String, active: Boolean) {
 
 @Composable
 private fun DataUsageCard(
-    kbLastMinute: Float,
-    mbLastHour: Float,
-    mbThisMonth: Float,
+    mbUploadThisWeek: Float,
+    mbDownloadThisWeek: Float,
+    mbUploadThisMonth: Float,
+    mbDownloadThisMonth: Float,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -404,17 +407,84 @@ private fun DataUsageCard(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
+            // Header row
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = stringResource(R.string.this_week),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = stringResource(R.string.this_month),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            // Upload row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                DataStat(label = stringResource(R.string.last_minute), value = "%.1f KB".format(kbLastMinute))
-                DataStat(label = stringResource(R.string.last_hour), value = "%.2f MB".format(mbLastHour))
-                DataStat(label = stringResource(R.string.this_month), value = "%.1f MB".format(mbThisMonth))
+                Text(
+                    text = stringResource(R.string.data_upload),
+                    fontSize = 12.sp,
+                    color = Color(0xFF2196F3),
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = formatMb(mbUploadThisWeek),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = formatMb(mbUploadThisMonth),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            // Download row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.data_download),
+                    fontSize = 12.sp,
+                    color = Color(0xFF4CAF50),
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = formatMb(mbDownloadThisWeek),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = formatMb(mbDownloadThisMonth),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
+}
+
+private fun formatMb(mb: Float): String {
+    return if (mb < 0.01f) "%.0f KB".format(mb * 1024f)
+    else "%.2f MB".format(mb)
 }
 
 @Composable

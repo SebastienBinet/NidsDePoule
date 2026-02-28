@@ -154,10 +154,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             hitReporter.checkConnectivity()
         }
 
-        // Restore month data
-        val savedMonthBytes = prefs.getLong("month_bytes", 0)
-        val savedMonthStart = prefs.getLong("month_start_ms", 0)
-        dataUsageTracker.restoreMonth(savedMonthBytes, savedMonthStart)
+        // Restore data usage counters (week + month, upload + download)
+        dataUsageTracker.restore(
+            weekUp = prefs.getLong("week_upload_bytes", 0),
+            weekDown = prefs.getLong("week_download_bytes", 0),
+            weekStart = prefs.getLong("week_start_ms", 0),
+            monthUp = prefs.getLong("month_upload_bytes", prefs.getLong("month_bytes", 0)),
+            monthDown = prefs.getLong("month_download_bytes", 0),
+            monthStart = prefs.getLong("month_start_ms", 0),
+        )
 
         // Start accelerometer (TYPE_LINEAR_ACCELERATION — gravity already removed)
         if (!DebugFlags.DISABLE_ACCELEROMETER) {
@@ -217,9 +222,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!DebugFlags.DISABLE_TTS) voiceFeedback.shutdown()
         if (!DebugFlags.DISABLE_VOICE) voiceCommandListener.stop()
 
-        // Persist month data
+        // Persist data usage counters
         prefs.edit()
-            .putLong("month_bytes", dataUsageTracker.monthBytes)
+            .putLong("week_upload_bytes", dataUsageTracker.weekUploadBytes)
+            .putLong("week_download_bytes", dataUsageTracker.weekDownloadBytes)
+            .putLong("week_start_ms", dataUsageTracker.weekStartMs)
+            .putLong("month_upload_bytes", dataUsageTracker.monthUploadBytes)
+            .putLong("month_download_bytes", dataUsageTracker.monthDownloadBytes)
             .putLong("month_start_ms", dataUsageTracker.monthStartMs)
             .apply()
     }
@@ -435,9 +444,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- Data usage accessors (for UI) ---
-    val kbLastMinute: Float get() = dataUsageTracker.kbLastMinute()
-    val mbLastHour: Float get() = dataUsageTracker.mbLastHour()
-    val mbThisMonth: Float get() = dataUsageTracker.mbThisMonth()
+    val mbUploadThisWeek: Float get() = dataUsageTracker.mbUploadThisWeek()
+    val mbDownloadThisWeek: Float get() = dataUsageTracker.mbDownloadThisWeek()
+    val mbUploadThisMonth: Float get() = dataUsageTracker.mbUploadThisMonth()
+    val mbDownloadThisMonth: Float get() = dataUsageTracker.mbDownloadThisMonth()
 
     // --- Private ---
 

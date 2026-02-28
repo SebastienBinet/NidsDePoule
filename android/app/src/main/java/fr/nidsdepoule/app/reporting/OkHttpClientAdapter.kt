@@ -40,6 +40,7 @@ class OkHttpClientAdapter : HttpClient {
                     statusCode = response.code,
                     body = responseBody,
                     bytesSent = jsonBody.toByteArray().size,
+                    bytesReceived = responseBody.toByteArray().size,
                 )
             } catch (e: IOException) {
                 HttpResult(
@@ -60,6 +61,7 @@ class OkHttpClientAdapter : HttpClient {
                     success = response.isSuccessful,
                     statusCode = response.code,
                     body = responseBody,
+                    bytesReceived = responseBody.toByteArray().size,
                 )
             } catch (e: IOException) {
                 HttpResult(
