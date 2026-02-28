@@ -7,13 +7,13 @@ package fr.nidsdepoule.app
  */
 object DebugFlags {
     /** Disable the osmdroid MapView widget entirely */
-    const val DISABLE_MAP = true
+    const val DISABLE_MAP = false
     /** Disable accelerometer sensor registration */
     const val DISABLE_ACCELEROMETER = false
     /** Disable GPS / location source */
     const val DISABLE_LOCATION = false
     /** Disable the foreground DetectionService */
-    const val DISABLE_SERVICE = true
+    const val DISABLE_SERVICE = false
     /** Disable voice command listener (audio capture + MFCC) */
     const val DISABLE_VOICE = true
     /** Disable TTS (text-to-speech) initialization */
