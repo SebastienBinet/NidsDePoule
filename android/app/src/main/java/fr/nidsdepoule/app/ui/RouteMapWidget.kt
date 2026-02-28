@@ -3,14 +3,19 @@ package fr.nidsdepoule.app.ui
 import android.graphics.drawable.GradientDrawable
 import android.view.ViewGroup
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import fr.nidsdepoule.app.sensor.LocationReading
 import org.osmdroid.config.Configuration
@@ -51,6 +56,16 @@ fun RouteMapWidget(
 ) {
     val context = LocalContext.current
 
+    // Defer MapView creation until after the first frame renders.
+    // MapView constructor performs heavy I/O (SQLite tile cache, tile providers)
+    // that would block the main thread and cause ANR during initial composition.
+    var mapReady by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        Configuration.getInstance().userAgentValue = context.packageName
+        mapReady = true
+    }
+
     // Flash animation for markers
     val infiniteTransition = rememberInfiniteTransition(label = "markerFlash")
     val flashAlpha by infiniteTransition.animateFloat(
@@ -63,89 +78,95 @@ fun RouteMapWidget(
         label = "flashAlpha",
     )
 
-    // Configure osmdroid user agent
-    LaunchedEffect(Unit) {
-        Configuration.getInstance().userAgentValue = context.packageName
-    }
+    val shape = RoundedCornerShape(8.dp)
 
-    AndroidView(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(180.dp)
-            .clip(RoundedCornerShape(8.dp)),
-        factory = { ctx ->
-            MapView(ctx).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                )
-                setTileSource(TileSourceFactory.MAPNIK)
-                setMultiTouchControls(true)
-                controller.setZoom(17.0)
-                // Disable scrolling — map follows the route
-                setScrollableAreaLimitLatitude(90.0, -90.0, 0)
-            }
-        },
-        update = { mapView ->
-            mapView.overlays.clear()
-
-            // Draw route polyline
-            if (locationHistory.size >= 2) {
-                val polyline = Polyline().apply {
-                    outlinePaint.color = android.graphics.Color.argb(200, 33, 150, 243) // blue
-                    outlinePaint.strokeWidth = 8f
-                    outlinePaint.isAntiAlias = true
-                }
-                val points = locationHistory.map { reading ->
-                    GeoPoint(
-                        reading.latMicrodeg / 1_000_000.0,
-                        reading.lonMicrodeg / 1_000_000.0,
+    if (mapReady) {
+        AndroidView(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .clip(shape),
+            factory = { ctx ->
+                MapView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
                     )
+                    setTileSource(TileSourceFactory.MAPNIK)
+                    setMultiTouchControls(true)
+                    controller.setZoom(17.0)
+                    setScrollableAreaLimitLatitude(90.0, -90.0, 0)
                 }
-                polyline.setPoints(points)
-                mapView.overlays.add(polyline)
+            },
+            update = { mapView ->
+                mapView.overlays.clear()
 
-                // Center map on latest position
-                val last = points.last()
-                mapView.controller.setCenter(last)
-            }
-
-            // Draw markers
-            for (markerData in markers) {
-                val point = GeoPoint(
-                    markerData.latMicrodeg / 1_000_000.0,
-                    markerData.lonMicrodeg / 1_000_000.0,
-                )
-
-                val isRecent = System.currentTimeMillis() - markerData.timestampMs < 10_000
-                val alpha = if (isRecent) (flashAlpha * 255).toInt() else 200
-
-                val color = when (markerData.type) {
-                    MapMarkerType.HIT -> android.graphics.Color.argb(alpha, 211, 47, 47)    // red
-                    MapMarkerType.ALMOST -> android.graphics.Color.argb(alpha, 255, 143, 0)  // amber
-                }
-
-                // Create a simple circle drawable for the marker
-                val drawable = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setSize(32, 32)
-                    setColor(color)
-                    setStroke(3, android.graphics.Color.WHITE)
-                }
-
-                val marker = Marker(mapView).apply {
-                    position = point
-                    icon = drawable
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    title = when (markerData.type) {
-                        MapMarkerType.HIT -> "Hit"
-                        MapMarkerType.ALMOST -> "Almost"
+                // Draw route polyline
+                if (locationHistory.size >= 2) {
+                    val polyline = Polyline().apply {
+                        outlinePaint.color = android.graphics.Color.argb(200, 33, 150, 243)
+                        outlinePaint.strokeWidth = 8f
+                        outlinePaint.isAntiAlias = true
                     }
-                }
-                mapView.overlays.add(marker)
-            }
+                    val points = locationHistory.map { reading ->
+                        GeoPoint(
+                            reading.latMicrodeg / 1_000_000.0,
+                            reading.lonMicrodeg / 1_000_000.0,
+                        )
+                    }
+                    polyline.setPoints(points)
+                    mapView.overlays.add(polyline)
 
-            mapView.invalidate()
-        },
-    )
+                    val last = points.last()
+                    mapView.controller.setCenter(last)
+                }
+
+                // Draw markers
+                for (markerData in markers) {
+                    val point = GeoPoint(
+                        markerData.latMicrodeg / 1_000_000.0,
+                        markerData.lonMicrodeg / 1_000_000.0,
+                    )
+
+                    val isRecent = System.currentTimeMillis() - markerData.timestampMs < 10_000
+                    val alpha = if (isRecent) (flashAlpha * 255).toInt() else 200
+
+                    val color = when (markerData.type) {
+                        MapMarkerType.HIT -> android.graphics.Color.argb(alpha, 211, 47, 47)
+                        MapMarkerType.ALMOST -> android.graphics.Color.argb(alpha, 255, 143, 0)
+                    }
+
+                    val drawable = GradientDrawable().apply {
+                        this.shape = GradientDrawable.OVAL
+                        setSize(32, 32)
+                        setColor(color)
+                        setStroke(3, android.graphics.Color.WHITE)
+                    }
+
+                    val marker = Marker(mapView).apply {
+                        position = point
+                        icon = drawable
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        title = when (markerData.type) {
+                            MapMarkerType.HIT -> "Hit"
+                            MapMarkerType.ALMOST -> "Almost"
+                        }
+                    }
+                    mapView.overlays.add(marker)
+                }
+
+                mapView.invalidate()
+            },
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .clip(shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("...", fontSize = 12.sp, color = Color.Gray)
+        }
+    }
 }

@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
         if (fineGranted) {
-            startDetection()
+            window.decorView.post { startDetection() }
         }
     }
 
