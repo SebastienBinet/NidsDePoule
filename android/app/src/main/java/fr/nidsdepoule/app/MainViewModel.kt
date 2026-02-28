@@ -137,13 +137,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isRunning = true
 
         // Start TTS initialization on a background thread
-        voiceFeedback.ensureInitialized()
+        if (!DebugFlags.DISABLE_TTS) {
+            voiceFeedback.ensureInitialized()
+        }
 
         // Wire connectivity callback
-        hitReporter.onConnectivityChanged = { connected ->
-            isConnected = connected
+        if (!DebugFlags.DISABLE_NETWORK) {
+            hitReporter.onConnectivityChanged = { connected ->
+                isConnected = connected
+            }
+            hitReporter.checkConnectivity()
         }
-        hitReporter.checkConnectivity()
 
         // Restore month data
         val savedMonthBytes = prefs.getLong("month_bytes", 0)
@@ -151,27 +155,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dataUsageTracker.restoreMonth(savedMonthBytes, savedMonthStart)
 
         // Start accelerometer (TYPE_LINEAR_ACCELERATION — gravity already removed)
-        accelerometer.start(AccelerometerCallback { timestamp, x, y, z ->
-            val magnitudeMg = sqrt((x.toLong() * x + y.toLong() * y + z.toLong() * z).toFloat()).toInt()
+        if (!DebugFlags.DISABLE_ACCELEROMETER) {
+            accelerometer.start(AccelerometerCallback { timestamp, x, y, z ->
+                val magnitudeMg = sqrt((x.toLong() * x + y.toLong() * y + z.toLong() * z).toFloat()).toInt()
 
-            // Buffer for graph display
-            accelBuffer.add(timestamp, magnitudeMg)
+                // Buffer for graph display
+                accelBuffer.add(timestamp, magnitudeMg)
 
-            // Buffer for Hit waveform capture
-            accelRecorder.addReading(timestamp, magnitudeMg)
+                // Buffer for Hit waveform capture
+                accelRecorder.addReading(timestamp, magnitudeMg)
 
-            // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
-            if (accelBuffer.size % 10 == 0) {
-                accelSamples = accelBuffer.snapshot(step = 4)
-            }
-        })
+                // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
+                if (accelBuffer.size % 10 == 0) {
+                    accelSamples = accelBuffer.snapshot(step = 4)
+                }
+            })
+        }
 
         // Start GPS (real or simulated)
-        startLocationSource()
+        if (!DebugFlags.DISABLE_LOCATION) {
+            startLocationSource()
+        }
 
         // Wire voice command listener
-        voiceCommandListener.onAlmost = { onReportAlmost() }
-        voiceCommandListener.onHit = { onReportHit() }
+        if (!DebugFlags.DISABLE_VOICE) {
+            voiceCommandListener.onAlmost = { onReportAlmost() }
+            voiceCommandListener.onHit = { onReportHit() }
+        }
     }
 
     /** Shared location callback used by both real and simulated GPS. */
@@ -197,10 +207,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stop() {
         if (!isRunning) return
         isRunning = false
-        accelerometer.stop()
-        activeLocationSource.stop()
-        voiceFeedback.shutdown()
-        voiceCommandListener.stop()
+        if (!DebugFlags.DISABLE_ACCELEROMETER) accelerometer.stop()
+        if (!DebugFlags.DISABLE_LOCATION) activeLocationSource.stop()
+        if (!DebugFlags.DISABLE_TTS) voiceFeedback.shutdown()
+        if (!DebugFlags.DISABLE_VOICE) voiceCommandListener.stop()
 
         // Persist month data
         prefs.edit()

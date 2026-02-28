@@ -80,7 +80,7 @@ fun RouteMapWidget(
 
     val shape = RoundedCornerShape(8.dp)
 
-    if (mapReady) {
+    if (mapReady && !fr.nidsdepoule.app.DebugFlags.DISABLE_MAP) {
         AndroidView(
             modifier = modifier
                 .fillMaxWidth()

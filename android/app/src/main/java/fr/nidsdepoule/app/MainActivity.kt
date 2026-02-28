@@ -123,14 +123,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        stopService(Intent(this, DetectionService::class.java))
+        if (!DebugFlags.DISABLE_SERVICE) {
+            stopService(Intent(this, DetectionService::class.java))
+        }
         viewModel.stop()
     }
 
     private fun startDetection() {
         viewModel.start()
-        val serviceIntent = Intent(this, DetectionService::class.java)
-        startForegroundService(serviceIntent)
+        if (!DebugFlags.DISABLE_SERVICE) {
+            val serviceIntent = Intent(this, DetectionService::class.java)
+            startForegroundService(serviceIntent)
+        }
         // Request notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -139,11 +143,13 @@ class MainActivity : ComponentActivity() {
             }
         }
         // Request microphone permission for voice commands
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            == PackageManager.PERMISSION_GRANTED) {
-            viewModel.voiceCommandListener.start()
-        } else {
-            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        if (!DebugFlags.DISABLE_VOICE) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) {
+                viewModel.voiceCommandListener.start()
+            } else {
+                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
         }
     }
 
