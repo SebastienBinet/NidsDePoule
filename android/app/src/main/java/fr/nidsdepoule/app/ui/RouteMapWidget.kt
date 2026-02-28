@@ -1,6 +1,5 @@
 package fr.nidsdepoule.app.ui
 
-import android.content.Context
 import android.graphics.drawable.GradientDrawable
 import android.view.ViewGroup
 import androidx.compose.animation.core.*
@@ -20,14 +19,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import fr.nidsdepoule.app.sensor.LocationReading
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Type of map marker event.
@@ -51,6 +47,10 @@ data class MapMarkerData(
  * - Blue polyline for the route
  * - Red flashing marker for Hit events
  * - Amber flashing marker for Almost events
+ *
+ * ANR fix: the MapView is NOT created until GPS delivers its first location.
+ * This naturally delays creation by several seconds (GPS warmup), so the app
+ * is fully responsive before the heavy MapView constructor runs on the main thread.
  */
 @Composable
 fun RouteMapWidget(
@@ -60,22 +60,16 @@ fun RouteMapWidget(
 ) {
     val context = LocalContext.current
 
-    // The default MapView(ctx) constructor creates a MapTileProviderBasic
-    // internally, which opens an SQLite tile-cache database — heavy I/O that
-    // blocks the main thread and causes ANR.
-    //
-    // Fix: pre-build the tile provider on Dispatchers.IO, then pass it to
-    // MapView(ctx, tileProvider) so the constructor does no I/O.
-    var tileProvider by remember { mutableStateOf<MapTileProviderBasic?>(null) }
+    // Only create MapView once we actually have location data.
+    // GPS warmup takes several seconds, giving the app time to become
+    // fully responsive before the MapView constructor blocks the main thread.
+    val hasLocation = locationHistory.isNotEmpty()
+    var configLoaded by remember { mutableStateOf(false) }
 
+    // Load osmdroid config once (lightweight, just sets user agent)
     LaunchedEffect(Unit) {
-        val provider = withContext(Dispatchers.IO) {
-            val config = Configuration.getInstance()
-            config.userAgentValue = context.packageName
-            config.load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
-            MapTileProviderBasic(context)
-        }
-        tileProvider = provider
+        Configuration.getInstance().userAgentValue = context.packageName
+        configLoaded = true
     }
 
     // Flash animation for markers
@@ -92,15 +86,14 @@ fun RouteMapWidget(
 
     val shape = RoundedCornerShape(8.dp)
 
-    val provider = tileProvider
-    if (provider != null && !fr.nidsdepoule.app.DebugFlags.DISABLE_MAP) {
+    if (hasLocation && configLoaded && !fr.nidsdepoule.app.DebugFlags.DISABLE_MAP) {
         AndroidView(
             modifier = modifier
                 .fillMaxWidth()
                 .height(180.dp)
                 .clip(shape),
             factory = { ctx ->
-                MapView(ctx, provider).apply {
+                MapView(ctx).apply {
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -179,7 +172,11 @@ fun RouteMapWidget(
                 .clip(shape),
             contentAlignment = Alignment.Center,
         ) {
-            Text("...", fontSize = 12.sp, color = Color.Gray)
+            Text(
+                if (!hasLocation) "En attente du GPS\u2026" else "...",
+                fontSize = 12.sp,
+                color = Color.Gray,
+            )
         }
     }
 }
