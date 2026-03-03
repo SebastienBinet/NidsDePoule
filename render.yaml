@@ -15,4 +15,17 @@ services:
         value: json
       - key: TZ
         value: America/Montreal
+      # S3/R2 persistent storage — set NIDS_STORAGE_BACKEND=s3 to enable.
+      # Create a free Cloudflare R2 bucket, then set these in Render dashboard:
+      #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+      - key: NIDS_STORAGE_BACKEND
+        value: s3
+      - key: NIDS_STORAGE_S3_BUCKET
+        sync: false   # set in Render dashboard
+      - key: NIDS_STORAGE_S3_ENDPOINT
+        sync: false   # https://<account_id>.r2.cloudflarestorage.com
+      - key: AWS_ACCESS_KEY_ID
+        sync: false   # set in Render dashboard
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false   # set in Render dashboard
     healthCheckPath: /api/v1/health

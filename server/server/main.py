@@ -24,6 +24,7 @@ from server.config import AppConfig, load_config
 from server.core.processor import HitProcessor
 from server.core.stats import ServerStats
 from server.queue.asyncio_queue import AsyncioHitQueue
+from server.storage.base import HitStorage
 from server.storage.file_storage import FileHitStorage
 
 log = structlog.get_logger()
@@ -32,7 +33,7 @@ log = structlog.get_logger()
 _processor: HitProcessor | None = None
 _stats: ServerStats | None = None
 _config: AppConfig | None = None
-_storage: FileHitStorage | None = None
+_storage: HitStorage | None = None
 
 
 def get_processor() -> HitProcessor:
@@ -50,7 +51,7 @@ def get_config() -> AppConfig:
     return _config
 
 
-def get_storage() -> FileHitStorage:
+def get_storage() -> HitStorage:
     assert _storage is not None, "Server not initialized"
     return _storage
 
@@ -86,13 +87,26 @@ async def lifespan(app: FastAPI):
 
     log.info("server_starting",
              env=_config.server.env,
+             storage_backend=_config.storage.backend,
              storage_dir=_config.storage.base_dir,
              queue_max_size=_config.queue.max_size)
 
     # Create components
     _stats = ServerStats(active_window_seconds=_config.limits.active_window_seconds)
     queue = AsyncioHitQueue(max_size=_config.queue.max_size)
-    _storage = FileHitStorage(base_dir=_config.storage.base_dir)
+
+    if _config.storage.backend == "s3":
+        from server.storage.s3_storage import S3HitStorage
+        _storage = S3HitStorage(
+            bucket=_config.storage.s3_bucket,
+            endpoint_url=_config.storage.s3_endpoint,
+            region=_config.storage.s3_region,
+        )
+        log.info("storage_s3", bucket=_config.storage.s3_bucket,
+                 endpoint=_config.storage.s3_endpoint)
+    else:
+        _storage = FileHitStorage(base_dir=_config.storage.base_dir)
+
     _processor = HitProcessor(queue=queue, storage=_storage, stats=_stats)
 
     # Start background storage consumer

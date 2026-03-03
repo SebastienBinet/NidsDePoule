@@ -115,7 +115,7 @@ fun MainScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "v16 NON",
+                text = "v17 PERSIST",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,

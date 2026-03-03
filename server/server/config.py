@@ -32,6 +32,8 @@ class StorageConfig:
     backend: str = "file"  # "file" or "s3"
     base_dir: str = "data/incoming"
     s3_bucket: str = ""
+    s3_endpoint: str = ""
+    s3_region: str = "auto"
 
 
 @dataclass
@@ -70,6 +72,8 @@ def _apply_env_overrides(config: AppConfig) -> None:
         "NIDS_STORAGE_BACKEND": lambda v: setattr(config.storage, "backend", v),
         "NIDS_STORAGE_BASE_DIR": lambda v: setattr(config.storage, "base_dir", v),
         "NIDS_STORAGE_S3_BUCKET": lambda v: setattr(config.storage, "s3_bucket", v),
+        "NIDS_STORAGE_S3_ENDPOINT": lambda v: setattr(config.storage, "s3_endpoint", v),
+        "NIDS_STORAGE_S3_REGION": lambda v: setattr(config.storage, "s3_region", v),
         "NIDS_LIMITS_MAX_BATCH_SIZE": lambda v: setattr(config.limits, "max_batch_size", int(v)),
         "NIDS_LIMITS_ACTIVE_WINDOW": lambda v: setattr(config.limits, "active_window_seconds", float(v)),
         "NIDS_LOG_LEVEL": lambda v: setattr(config.logging, "level", v),
