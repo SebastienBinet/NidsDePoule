@@ -135,12 +135,16 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Shutdown — flush buffered hits to Firestore before exiting.
     consumer_task.cancel()
     try:
         await consumer_task
     except asyncio.CancelledError:
         pass
+
+    if _storage is not None and hasattr(_storage, "shutdown"):
+        _storage.shutdown()
+
     log.info("server_stopped")
 
 
