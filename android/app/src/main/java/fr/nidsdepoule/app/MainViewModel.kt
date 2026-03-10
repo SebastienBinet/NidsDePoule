@@ -187,6 +187,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             startLocationSource()
         }
 
+        // Start heartbeat timer (sends current location to server every 10s)
+        if (!DebugFlags.DISABLE_NETWORK) {
+            hitReporter.startHeartbeat()
+        }
+
         // Wire voice command listener
         if (!DebugFlags.DISABLE_VOICE) {
             voiceCommandListener.onAlmost = { onVoiceAlmost() }
@@ -199,6 +204,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val locationCb = LocationCallback { reading ->
         hasGpsFix = true
         lastLocation = reading
+        hitReporter.lastKnownLocation = reading
 
         synchronized(locationHistory) {
             locationHistory.addLast(reading)
@@ -220,6 +226,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isRunning = false
         if (!DebugFlags.DISABLE_ACCELEROMETER) accelerometer.stop()
         if (!DebugFlags.DISABLE_LOCATION) activeLocationSource.stop()
+        if (!DebugFlags.DISABLE_NETWORK) hitReporter.stopHeartbeat()
         if (!DebugFlags.DISABLE_TTS) voiceFeedback.shutdown()
         if (!DebugFlags.DISABLE_VOICE) voiceCommandListener.stop()
 

@@ -49,7 +49,11 @@ class HitProcessor:
 
         # Handle heartbeat
         if msg.heartbeat_timestamp_ms is not None:
-            self._stats.record_heartbeat(msg.device_id)
+            self._stats.record_heartbeat(
+                msg.device_id,
+                lat=msg.heartbeat_lat,
+                lon=msg.heartbeat_lon,
+            )
             log.debug("heartbeat_received", device=msg.device_id[:8],
                       pending=msg.heartbeat_pending_hits)
             return True, "", 0

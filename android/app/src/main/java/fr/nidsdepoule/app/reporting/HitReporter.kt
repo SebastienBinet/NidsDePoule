@@ -1,9 +1,12 @@
 package fr.nidsdepoule.app.reporting
 
+import fr.nidsdepoule.app.sensor.LocationReading
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.util.Timer
+import java.util.TimerTask
 
 /**
  * Orchestrates sending hit reports to the server.
@@ -39,6 +42,10 @@ class HitReporter(
         private set
 
     private val scope = CoroutineScope(Dispatchers.IO)
+
+    // Heartbeat timer — sends current location every 10s
+    private var heartbeatTimer: Timer? = null
+    var lastKnownLocation: LocationReading? = null
 
     /**
      * Report a hit. In real-time mode, sends immediately.
@@ -86,6 +93,57 @@ class HitReporter(
         scope.launch {
             val result = httpClient.get("$serverUrl/health")
             onConnectivityChanged?.invoke(result.success)
+        }
+    }
+
+    /**
+     * Start sending periodic heartbeats with the device's current location.
+     * Call once after the reporter is initialised (e.g. in ViewModel.start()).
+     */
+    fun startHeartbeat() {
+        stopHeartbeat()
+        heartbeatTimer = Timer("heartbeat", true).apply {
+            scheduleAtFixedRate(object : TimerTask() {
+                override fun run() {
+                    scope.launch { sendHeartbeat() }
+                }
+            }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS)
+        }
+    }
+
+    /** Stop the heartbeat timer. Call in ViewModel.stop(). */
+    fun stopHeartbeat() {
+        heartbeatTimer?.cancel()
+        heartbeatTimer = null
+    }
+
+    private suspend fun sendHeartbeat() {
+        if (serverUrl.isBlank()) return
+        val loc = lastKnownLocation
+        val json = buildMap<String, Any?> {
+            put("protocol_version", 1)
+            put("device_id", deviceId)
+            put("app_version", appVersion)
+            put("heartbeat", buildMap<String, Any?> {
+                put("timestamp_ms", System.currentTimeMillis())
+                put("pending_hits", pendingCount)
+                if (loc != null) {
+                    put("location", mapOf(
+                        "lat_microdeg" to loc.latMicrodeg,
+                        "lon_microdeg" to loc.lonMicrodeg,
+                        "accuracy_m" to loc.accuracyM,
+                    ))
+                }
+            })
+        }
+        val jsonStr = JSONObject(json).toString()
+        val url = "$serverUrl/api/v1/hits"
+        val result = httpClient.postJson(url, jsonStr)
+        if (result.success) {
+            dataUsageTracker.record(result.bytesSent, result.bytesReceived)
+            onConnectivityChanged?.invoke(true)
+        } else {
+            onConnectivityChanged?.invoke(false)
         }
     }
 
@@ -159,5 +217,10 @@ class HitReporter(
                 buffer.addAll(0, hits)
             }
         }
+    }
+
+    companion object {
+        /** Heartbeat interval in milliseconds (10 seconds). */
+        const val HEARTBEAT_INTERVAL_MS = 10_000L
     }
 }

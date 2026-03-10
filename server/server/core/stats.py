@@ -101,13 +101,27 @@ class ServerStats:
                     last_lat=lat, last_lon=lon,
                 )
 
-    def record_heartbeat(self, device_id: str) -> None:
-        """Record a heartbeat from a device."""
+    def record_heartbeat(
+        self, device_id: str, *,
+        lat: float | None = None,
+        lon: float | None = None,
+    ) -> None:
+        """Record a heartbeat from a device, optionally with GPS location."""
         now = time.monotonic()
         with self._lock:
             self.heartbeats_received += 1
             if device_id in self._devices:
-                self._devices[device_id].last_seen = now
+                dev = self._devices[device_id]
+                dev.last_seen = now
+                if lat is not None:
+                    dev.last_lat = lat
+                    dev.last_lon = lon
+            elif lat is not None:
+                # First time seeing this device — create entry from heartbeat.
+                self._devices[device_id] = DeviceActivity(
+                    last_seen=now, reporting_mode="realtime",
+                    last_lat=lat, last_lon=lon,
+                )
 
     def record_stored(self, count: int, size_bytes: int) -> None:
         with self._lock:
