@@ -2,6 +2,10 @@
 
 Stores hit records as documents in a Firestore collection.
 Uses the free Spark plan (no credit card required).
+
+All reads are served from an in-memory cache that is populated once at
+startup.  This avoids burning through the Spark-plan 50 k reads/day
+quota (the dashboard polls every second).
 """
 
 from __future__ import annotations
@@ -39,6 +43,23 @@ class FirestoreHitStorage:
         self._db = firestore.client()
         self._collection = collection
 
+        # In-memory cache: record_id -> dict
+        self._cache: dict[int, dict] = {}
+        self._load_cache()
+
+    def _load_cache(self) -> None:
+        """One-time read of all documents into the in-memory cache."""
+        count = 0
+        for doc in self._db.collection(self._collection).stream():
+            try:
+                data = doc.to_dict()
+                rid = data.get("record_id", 0)
+                self._cache[rid] = data
+                count += 1
+            except Exception as exc:
+                log.warning("firestore_cache_load_failed", doc_id=doc.id, error=str(exc))
+        log.info("firestore_cache_loaded", count=count)
+
     @staticmethod
     def _to_dict(record: ServerHitRecordData) -> dict:
         return {
@@ -73,28 +94,24 @@ class FirestoreHitStorage:
         }
 
     async def store(self, record: ServerHitRecordData) -> None:
+        data = self._to_dict(record)
         doc_id = str(record.record_id)
-        self._db.collection(self._collection).document(doc_id).set(
-            self._to_dict(record)
-        )
+        self._db.collection(self._collection).document(doc_id).set(data)
+        self._cache[record.record_id] = data
         log.debug("firestore_hit_written", record_id=record.record_id)
 
     async def store_batch(self, records: list[ServerHitRecordData]) -> None:
         batch = self._db.batch()
         col = self._db.collection(self._collection)
         for record in records:
-            batch.set(col.document(str(record.record_id)), self._to_dict(record))
+            data = self._to_dict(record)
+            batch.set(col.document(str(record.record_id)), data)
+            self._cache[record.record_id] = data
         batch.commit()
         log.debug("firestore_batch_written", count=len(records))
 
     def read_all_hits(self) -> list[dict]:
-        hits: list[dict] = []
-        for doc in self._db.collection(self._collection).stream():
-            try:
-                hits.append(doc.to_dict())
-            except Exception as exc:
-                log.warning("firestore_read_failed", doc_id=doc.id, error=str(exc))
-        return hits
+        return list(self._cache.values())
 
     def delete_hits(self, record_ids: set[int]) -> int:
         deleted = 0
@@ -102,6 +119,7 @@ class FirestoreHitStorage:
         col = self._db.collection(self._collection)
         for rid in record_ids:
             batch.delete(col.document(str(rid)))
+            self._cache.pop(rid, None)
             deleted += 1
         batch.commit()
         log.info("firestore_hits_deleted", count=deleted)
