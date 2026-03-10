@@ -104,6 +104,13 @@ async def lifespan(app: FastAPI):
         )
         log.info("storage_s3", bucket=_config.storage.s3_bucket,
                  endpoint=_config.storage.s3_endpoint)
+    elif _config.storage.backend == "firebase":
+        from server.storage.firebase_storage import FirebaseHitStorage
+        _storage = FirebaseHitStorage(
+            bucket_name=_config.storage.firebase_bucket,
+            credentials_json=_config.storage.firebase_credentials_json,
+        )
+        log.info("storage_firebase", bucket=_config.storage.firebase_bucket)
     else:
         _storage = FileHitStorage(base_dir=_config.storage.base_dir)
 

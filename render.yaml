@@ -15,17 +15,14 @@ services:
         value: json
       - key: TZ
         value: America/Montreal
-      # S3/R2 persistent storage — set NIDS_STORAGE_BACKEND=s3 to enable.
-      # Create a free Cloudflare R2 bucket, then set these in Render dashboard:
-      #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+      # Firebase Storage — set NIDS_STORAGE_BACKEND=firebase to enable.
+      # Create a Firebase project, enable Storage, then generate a service
+      # account key (Project Settings → Service accounts → Generate new private key).
+      # Paste the full JSON as NIDS_STORAGE_FIREBASE_CREDENTIALS_JSON in Render dashboard.
       - key: NIDS_STORAGE_BACKEND
-        value: s3
-      - key: NIDS_STORAGE_S3_BUCKET
-        sync: false   # set in Render dashboard
-      - key: NIDS_STORAGE_S3_ENDPOINT
-        sync: false   # https://<account_id>.r2.cloudflarestorage.com
-      - key: AWS_ACCESS_KEY_ID
-        sync: false   # set in Render dashboard
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false   # set in Render dashboard
+        value: firebase
+      - key: NIDS_STORAGE_FIREBASE_BUCKET
+        sync: false   # e.g. nidsdepoulestorage.firebasestorage.app
+      - key: NIDS_STORAGE_FIREBASE_CREDENTIALS_JSON
+        sync: false   # paste the full service account JSON here
     healthCheckPath: /api/v1/health
