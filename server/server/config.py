@@ -29,13 +29,16 @@ class QueueConfig:
 
 @dataclass
 class StorageConfig:
-    backend: str = "file"  # "file", "s3", or "firebase"
+    backend: str = "file"  # "file", "s3", "firebase", or "firestore"
     base_dir: str = "data/incoming"
     s3_bucket: str = ""
     s3_endpoint: str = ""
     s3_region: str = "auto"
     firebase_bucket: str = ""  # e.g. "nidsdepoulestorage.firebasestorage.app"
     firebase_credentials_json: str = ""  # service account JSON (as string)
+    firestore_project_id: str = ""  # e.g. "nidsdepoulestorage"
+    firestore_credentials_json: str = ""  # service account JSON (as string)
+    firestore_collection: str = "potholes"  # Firestore collection name
 
 
 @dataclass
@@ -78,6 +81,9 @@ def _apply_env_overrides(config: AppConfig) -> None:
         "NIDS_STORAGE_S3_REGION": lambda v: setattr(config.storage, "s3_region", v),
         "NIDS_STORAGE_FIREBASE_BUCKET": lambda v: setattr(config.storage, "firebase_bucket", v),
         "NIDS_STORAGE_FIREBASE_CREDENTIALS_JSON": lambda v: setattr(config.storage, "firebase_credentials_json", v),
+        "NIDS_STORAGE_FIRESTORE_PROJECT_ID": lambda v: setattr(config.storage, "firestore_project_id", v),
+        "NIDS_STORAGE_FIRESTORE_CREDENTIALS_JSON": lambda v: setattr(config.storage, "firestore_credentials_json", v),
+        "NIDS_STORAGE_FIRESTORE_COLLECTION": lambda v: setattr(config.storage, "firestore_collection", v),
         "NIDS_LIMITS_MAX_BATCH_SIZE": lambda v: setattr(config.limits, "max_batch_size", int(v)),
         "NIDS_LIMITS_ACTIVE_WINDOW": lambda v: setattr(config.limits, "active_window_seconds", float(v)),
         "NIDS_LOG_LEVEL": lambda v: setattr(config.logging, "level", v),
