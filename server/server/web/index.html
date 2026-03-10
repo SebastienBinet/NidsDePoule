@@ -233,6 +233,7 @@ function bearingLine(lon, lat, bearingDeg, lengthM) {
 }
 
 // --- Auto-refresh ---
+const AUTO_REFRESH_MS = 1000;  // adjust this value to change refresh rate
 let autoRefreshInterval = null;
 
 function toggleAutoRefresh() {
@@ -242,7 +243,7 @@ function toggleAutoRefresh() {
     autoRefreshInterval = null;
     btn.classList.remove('active');
   } else {
-    autoRefreshInterval = setInterval(() => loadAll(false), 1000);
+    autoRefreshInterval = setInterval(() => loadAll(false), AUTO_REFRESH_MS);
     btn.classList.add('active');
   }
 }
@@ -651,6 +652,8 @@ map.on('mouseleave', 'hits-points', () => { if (!eraserRadiusM) map.getCanvas().
 
 map.on('load', () => {
   loadAll(true);
+  // Start auto-refresh by default
+  toggleAutoRefresh();
   // Fetch build info and display in panel.
   fetch('/api/v1/health').then(r => r.json()).then(info => {
     const el = document.getElementById('build-info');
