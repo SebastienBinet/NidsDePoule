@@ -172,20 +172,10 @@ fun RouteMapWidget(
     val routeWorldH = maxOf(routeWorldMaxY - routeWorldMinY, 10.0)
     val padX = routeWorldW * 0.15
     val padY = routeWorldH * 0.15
-
-    // Enforce 1:1 aspect ratio (equal world-pixels per screen-pixel in both axes)
-    // Expand the smaller dimension to match the larger one
     val rawW = routeWorldW + 2 * padX
     val rawH = routeWorldH + 2 * padY
     val centerWX = (routeWorldMinX + routeWorldMaxX) / 2.0
     val centerWY = (routeWorldMinY + routeWorldMaxY) / 2.0
-    val vpSide = maxOf(rawW, rawH)
-    val vpWorldMinX = centerWX - vpSide / 2.0
-    val vpWorldMaxX = centerWX + vpSide / 2.0
-    val vpWorldMinY = centerWY - vpSide / 2.0
-    val vpWorldMaxY = centerWY + vpSide / 2.0
-    val vpWorldW = vpSide
-    val vpWorldH = vpSide
 
     val routeColor = Color(0xFF2196F3)
     val hitColor = Color(0xFFD32F2F)
@@ -217,6 +207,25 @@ fun RouteMapWidget(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
+
+            // Enforce 1:1 aspect ratio: equal world-pixels per screen-pixel.
+            // Scale the viewport so the data bounding box fits, then expand
+            // the axis that has room to spare to match the screen ratio.
+            val screenRatio = w / h  // > 1 if landscape
+            val dataRatio = rawW / rawH
+            val vpWorldW: Double
+            val vpWorldH: Double
+            if (dataRatio > screenRatio) {
+                // Data is wider than screen: match width, expand height
+                vpWorldW = rawW
+                vpWorldH = rawW / screenRatio
+            } else {
+                // Data is taller than screen: match height, expand width
+                vpWorldH = rawH
+                vpWorldW = rawH * screenRatio
+            }
+            val vpWorldMinX = centerWX - vpWorldW / 2.0
+            val vpWorldMinY = centerWY - vpWorldH / 2.0
 
             fun worldToScreen(worldX: Double, worldY: Double): Offset {
                 val sx = ((worldX - vpWorldMinX) / vpWorldW * w).toFloat()
