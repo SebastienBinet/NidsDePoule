@@ -31,7 +31,7 @@ import kotlin.math.cos
 /**
  * Type of map marker event.
  */
-enum class MapMarkerType { HIT, ALMOST }
+enum class MapMarkerType { HIT, ALMOST, SERVER }
 
 /**
  * A map marker representing a Hit or Almost event.
@@ -173,6 +173,7 @@ fun RouteMapWidget(
     val routeColor = Color(0xFF2196F3)
     val hitColor = Color(0xFFD32F2F)
     val almostColor = Color(0xFFFF8F00)
+    val serverColor = Color(0xFF7B1FA2)
     val currentPosColor = Color(0xFF4CAF50)
     val bgColor = Color(0xFF1B1B2F)
     val now = System.currentTimeMillis()
@@ -269,6 +270,7 @@ fun RouteMapWidget(
                 val color = when (m.type) {
                     MapMarkerType.HIT -> hitColor.copy(alpha = alpha)
                     MapMarkerType.ALMOST -> almostColor.copy(alpha = alpha)
+                    MapMarkerType.SERVER -> serverColor.copy(alpha = alpha)
                 }
                 drawCircle(color = color, radius = 14f, center = pos)
                 drawCircle(

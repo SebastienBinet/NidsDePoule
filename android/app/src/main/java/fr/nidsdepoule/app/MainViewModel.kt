@@ -114,6 +114,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     // --- Map state ---
+    private var localMarkers by mutableStateOf<List<MapMarkerData>>(emptyList())
+    private var serverMarkers by mutableStateOf<List<MapMarkerData>>(emptyList())
     var mapMarkers by mutableStateOf<List<MapMarkerData>>(emptyList())
         private set
     var locationHistorySnapshot by mutableStateOf<List<LocationReading>>(emptyList())
@@ -190,6 +192,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Start heartbeat timer (sends current location to server every 10s)
         if (!DebugFlags.DISABLE_NETWORK) {
             hitReporter.startHeartbeat()
+
+            // Fetch server-known potholes periodically
+            hitReporter.onPotholesFetched = { markers ->
+                serverMarkers = markers
+                updateMapMarkers()
+            }
+            hitReporter.startPotholesFetch()
         }
 
         // Wire voice command listener
@@ -226,7 +235,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isRunning = false
         if (!DebugFlags.DISABLE_ACCELEROMETER) accelerometer.stop()
         if (!DebugFlags.DISABLE_LOCATION) activeLocationSource.stop()
-        if (!DebugFlags.DISABLE_NETWORK) hitReporter.stopHeartbeat()
+        if (!DebugFlags.DISABLE_NETWORK) {
+            hitReporter.stopHeartbeat()
+            hitReporter.stopPotholesFetch()
+        }
         if (!DebugFlags.DISABLE_TTS) voiceFeedback.shutdown()
         if (!DebugFlags.DISABLE_VOICE) voiceCommandListener.stop()
 
@@ -410,6 +422,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Merge local and server markers into the combined list. */
+    private fun updateMapMarkers() {
+        mapMarkers = serverMarkers + localMarkers
+    }
+
     /** Add a map marker and update the observable list. */
     private fun addMapMarker(location: LocationReading, type: MapMarkerType) {
         val marker = MapMarkerData(
@@ -418,7 +435,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             type = type,
             timestampMs = System.currentTimeMillis(),
         )
-        mapMarkers = mapMarkers + marker
+        localMarkers = localMarkers + marker
+        updateMapMarkers()
     }
 
     // --- Voice training ---

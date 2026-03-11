@@ -1,6 +1,8 @@
 package fr.nidsdepoule.app.reporting
 
 import fr.nidsdepoule.app.sensor.LocationReading
+import fr.nidsdepoule.app.ui.MapMarkerData
+import fr.nidsdepoule.app.ui.MapMarkerType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -219,8 +221,66 @@ class HitReporter(
         }
     }
 
+    // --- Server potholes fetching ---
+
+    private var potholesTimer: Timer? = null
+    var onPotholesFetched: ((List<MapMarkerData>) -> Unit)? = null
+
+    /** Start periodically fetching pothole positions from the server. */
+    fun startPotholesFetch() {
+        stopPotholesFetch()
+        // Fetch immediately, then every 30 seconds
+        scope.launch { fetchPotholes() }
+        potholesTimer = Timer("potholes", true).apply {
+            scheduleAtFixedRate(object : TimerTask() {
+                override fun run() {
+                    scope.launch { fetchPotholes() }
+                }
+            }, POTHOLES_INTERVAL_MS, POTHOLES_INTERVAL_MS)
+        }
+    }
+
+    /** Stop the potholes fetch timer. */
+    fun stopPotholesFetch() {
+        potholesTimer?.cancel()
+        potholesTimer = null
+    }
+
+    /** Fetch clustered potholes from the server and notify via callback. */
+    private suspend fun fetchPotholes() {
+        if (serverUrl.isBlank()) return
+        val result = httpClient.get("$serverUrl/api/v1/potholes")
+        if (!result.success) return
+        dataUsageTracker.record(0, result.bytesReceived)
+
+        try {
+            val json = JSONObject(result.body)
+            val features = json.getJSONArray("features")
+            val markers = mutableListOf<MapMarkerData>()
+            for (i in 0 until features.length()) {
+                val feature = features.getJSONObject(i)
+                val coords = feature.getJSONObject("geometry").getJSONArray("coordinates")
+                val lon = coords.getDouble(0)
+                val lat = coords.getDouble(1)
+                val props = feature.getJSONObject("properties")
+                val lastSeenMs = props.optLong("last_seen_ms", 0)
+                markers.add(MapMarkerData(
+                    latMicrodeg = (lat * 1_000_000).toInt(),
+                    lonMicrodeg = (lon * 1_000_000).toInt(),
+                    type = MapMarkerType.SERVER,
+                    timestampMs = lastSeenMs,
+                ))
+            }
+            onPotholesFetched?.invoke(markers)
+        } catch (_: Exception) {
+            // Ignore parse errors
+        }
+    }
+
     companion object {
         /** Heartbeat interval in milliseconds (10 seconds). */
         const val HEARTBEAT_INTERVAL_MS = 10_000L
+        /** Potholes fetch interval in milliseconds (30 seconds). */
+        const val POTHOLES_INTERVAL_MS = 30_000L
     }
 }
