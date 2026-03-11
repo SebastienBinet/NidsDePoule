@@ -22,15 +22,23 @@ class FirebaseHitStorage:
     """HitStorage backed by Firebase Cloud Storage."""
 
     def __init__(self, bucket_name: str, credentials_json: str = "") -> None:
+        import os
+
         import firebase_admin
         from firebase_admin import credentials, storage
 
         if not firebase_admin._apps:
             if credentials_json:
                 cred = credentials.Certificate(json.loads(credentials_json))
-            else:
-                # Falls back to GOOGLE_APPLICATION_CREDENTIALS env var
+            elif os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
                 cred = credentials.ApplicationDefault()
+            else:
+                raise RuntimeError(
+                    "Firebase credentials not configured. "
+                    "Set NIDS_STORAGE_FIREBASE_CREDENTIALS_JSON env var "
+                    "(full service-account JSON as a string) or "
+                    "GOOGLE_APPLICATION_CREDENTIALS (path to key file)."
+                )
             firebase_admin.initialize_app(cred, {
                 "storageBucket": bucket_name,
             })
