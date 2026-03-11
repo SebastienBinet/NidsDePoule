@@ -3,74 +3,105 @@ package fr.nidsdepoule.app.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.R
-import fr.nidsdepoule.app.reporting.HitReporter
+import fr.nidsdepoule.app.sensor.LocationReading
+import fr.nidsdepoule.app.sensor.audio.MfccExtractor
+import fr.nidsdepoule.app.sensor.audio.VoiceProfileStore
 
 /**
  * Main screen of the NidsDePoule app.
  *
  * Shows:
- * 1. Status bar (car mount, GPS, connection)
- * 2. Acceleration graph (last 60 seconds)
- * 3. Data usage stats (KB/min, MB/hour, MB/month)
- * 4. Reporting mode toggle (real-time vs Wi-Fi batch)
+ * 1. Status bar (GPS, connection)
+ * 2. Two big report buttons (Almost / Hit)
+ * 3. Acceleration graph (last 30 seconds)
+ * 4. Data usage stats
  * 5. Hit counter
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(
     accelSamples: List<AccelerationBuffer.Sample>,
-    isMounted: Boolean,
     hasGpsFix: Boolean,
     isConnected: Boolean,
-    reportingMode: HitReporter.Mode,
-    onModeChanged: (HitReporter.Mode) -> Unit,
     hitsDetected: Int,
     hitsSent: Int,
     hitsPending: Int,
-    kbLastMinute: Float,
-    mbLastHour: Float,
-    mbThisMonth: Float,
+    mbUploadThisWeek: Float,
+    mbDownloadThisWeek: Float,
+    mbUploadThisMonth: Float,
+    mbDownloadThisMonth: Float,
     appVersion: String,
     buildTime: String,
+    versionLabel: String,
     devModeEnabled: Boolean,
     onDevModeTap: () -> Unit,
-    onVisualSmall: () -> Unit = {},
-    onVisualBig: () -> Unit = {},
-    onImpactSmall: () -> Unit = {},
-    onImpactBig: () -> Unit = {},
+    onAlmost: () -> Unit = {},
+    onHit: () -> Unit = {},
+    onCancel: () -> Unit = {},
     hitFlashActive: Boolean = false,
     hitFlashText: String = "HIT!",
     isSimulating: Boolean = false,
     onToggleSimulation: () -> Unit = {},
     serverUrl: String = "",
-    onServerUrlChanged: (String) -> Unit = {},
     voiceMuted: Boolean = false,
     onToggleVoice: () -> Unit = {},
-    thresholdFactor: Double = 3.0,
-    onThresholdFactorChanged: (Double) -> Unit = {},
-    minMagnitudeMg: Int = 150,
-    onMinMagnitudeChanged: (Int) -> Unit = {},
-    currentBaselineMg: Int = 0,
+    isListening: Boolean = false,
+    // Map
+    locationHistory: List<LocationReading> = emptyList(),
+    mapMarkers: List<MapMarkerData> = emptyList(),
+    currentSpeedMps: Float = 0f,
+    // Voice training
+    showVoiceTraining: Boolean = false,
+    voiceTrainingKeywords: List<String> = emptyList(),
+    voiceTrainingLabel: String = "",
+    onAlmostLongPress: () -> Unit = {},
+    onHitLongPress: () -> Unit = {},
+    onCancelLongPress: () -> Unit = {},
+    onVoiceTrainingDismiss: () -> Unit = {},
+    onVoiceTrainingComplete: () -> Unit = {},
+    profileStore: VoiceProfileStore? = null,
+    mfccExtractor: MfccExtractor? = null,
+    // Voice match overlay (dev mode)
+    voiceMatchScores: Map<String, Float> = emptyMap(),
 ) {
+    // Voice training dialog
+    if (showVoiceTraining && profileStore != null && mfccExtractor != null) {
+        VoiceTrainingDialog(
+            keywords = voiceTrainingKeywords,
+            groupLabel = voiceTrainingLabel,
+            profileStore = profileStore,
+            mfccExtractor = mfccExtractor,
+            onDismiss = onVoiceTrainingDismiss,
+            onComplete = onVoiceTrainingComplete,
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
     ) {
         // Title with deploy canary and voice toggle
@@ -86,12 +117,12 @@ fun MainScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "v5 PURPLE",
+                text = versionLabel,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
                 modifier = Modifier
-                    .background(Color(0xFF9C27B0), RoundedCornerShape(3.dp))
+                    .background(Color(0xFF009688), RoundedCornerShape(3.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
             Spacer(modifier = Modifier.weight(1f))
@@ -121,24 +152,49 @@ fun MainScreen(
 
         // Status indicators
         StatusBar(
-            isMounted = isMounted,
             hasGpsFix = hasGpsFix,
             isConnected = isConnected,
             devModeEnabled = devModeEnabled,
             isSimulating = isSimulating,
+            isListening = isListening,
         )
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Manual report buttons — large targets for in-car use
+        // Two big report buttons: Almost and Hit
+        // Tap = report. Long-press = voice training.
         ReportButtonsPanel(
-            onVisualSmall = onVisualSmall,
-            onVisualBig = onVisualBig,
-            onImpactSmall = onImpactSmall,
-            onImpactBig = onImpactBig,
+            onAlmost = onAlmost,
+            onHit = onHit,
+            onCancel = onCancel,
+            onAlmostLongPress = onAlmostLongPress,
+            onHitLongPress = onHitLongPress,
+            onCancelLongPress = onCancelLongPress,
         )
 
         Spacer(modifier = Modifier.height(12.dp))
+
+        // Map widget (above the graph)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = "Route (last 30s)",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                RouteMapWidget(
+                    locationHistory = locationHistory,
+                    markers = mapMarkers,
+                    currentSpeedMps = currentSpeedMps,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Acceleration graph
         Card(
@@ -163,9 +219,10 @@ fun MainScreen(
 
         // Data usage
         DataUsageCard(
-            kbLastMinute = kbLastMinute,
-            mbLastHour = mbLastHour,
-            mbThisMonth = mbThisMonth,
+            mbUploadThisWeek = mbUploadThisWeek,
+            mbDownloadThisWeek = mbDownloadThisWeek,
+            mbUploadThisMonth = mbUploadThisMonth,
+            mbDownloadThisMonth = mbDownloadThisMonth,
         )
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -176,9 +233,16 @@ fun MainScreen(
             hitsPending = hitsPending,
         )
 
-        // Dev mode controls (simulation + server URL)
+        // Dev mode controls (voice match overlay + simulation + server URL)
         if (devModeEnabled) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Voice match overlay
+            if (voiceMatchScores.isNotEmpty()) {
+                VoiceMatchOverlay(matchScores = voiceMatchScores)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             Button(
                 onClick = onToggleSimulation,
                 modifier = Modifier.fillMaxWidth(),
@@ -192,25 +256,26 @@ fun MainScreen(
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
-            OutlinedTextField(
-                value = serverUrl,
-                onValueChange = onServerUrlChanged,
-                label = { Text("Server URL") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            SensitivitySliders(
-                thresholdFactor = thresholdFactor,
-                onThresholdFactorChanged = onThresholdFactorChanged,
-                minMagnitudeMg = minMagnitudeMg,
-                onMinMagnitudeChanged = onMinMagnitudeChanged,
-                currentBaselineMg = currentBaselineMg,
+            // Server URL — read-only, tap to copy
+            val clipboardManager = LocalClipboardManager.current
+            Text(
+                text = "Server: $serverUrl",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        RoundedCornerShape(4.dp),
+                    )
+                    .clickable { clipboardManager.setText(AnnotatedString(serverUrl)) }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             )
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Version number (tap 7 times for dev mode)
         Box(
@@ -219,7 +284,7 @@ fun MainScreen(
         ) {
             TextButton(onClick = onDevModeTap) {
                 Text(
-                    text = "v$appVersion - $buildTime",
+                    text = "v$appVersion - $versionLabel - $buildTime",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                 )
@@ -227,7 +292,7 @@ fun MainScreen(
         }
     }
 
-    // Full-screen red flash overlay when a hit is detected
+    // Full-screen flash overlay when a report is sent
     AnimatedVisibility(
         visible = hitFlashActive,
         enter = fadeIn(),
@@ -252,20 +317,16 @@ fun MainScreen(
 
 @Composable
 private fun StatusBar(
-    isMounted: Boolean,
     hasGpsFix: Boolean,
     isConnected: Boolean,
     devModeEnabled: Boolean,
     isSimulating: Boolean = false,
+    isListening: Boolean = false,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusChip(
-            label = stringResource(R.string.status_car_mount),
-            active = isMounted,
-        )
         StatusChip(
             label = stringResource(R.string.status_gps),
             active = hasGpsFix,
@@ -274,6 +335,17 @@ private fun StatusBar(
             label = stringResource(R.string.status_connected),
             active = isConnected,
         )
+        if (isListening) {
+            Text(
+                text = "MIC",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier
+                    .background(Color(0xFF2196F3), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
         if (devModeEnabled) {
             Text(
                 text = "DEV",
@@ -326,21 +398,11 @@ private fun StatusChip(label: String, active: Boolean) {
 }
 
 @Composable
-private fun LegendDot(color: androidx.compose.ui.graphics.Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Canvas(modifier = Modifier.size(8.dp)) {
-            drawCircle(color = color)
-        }
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(text = label, fontSize = 11.sp)
-    }
-}
-
-@Composable
 private fun DataUsageCard(
-    kbLastMinute: Float,
-    mbLastHour: Float,
-    mbThisMonth: Float,
+    mbUploadThisWeek: Float,
+    mbDownloadThisWeek: Float,
+    mbUploadThisMonth: Float,
+    mbDownloadThisMonth: Float,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -352,17 +414,84 @@ private fun DataUsageCard(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
+            // Header row
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = stringResource(R.string.this_week),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = stringResource(R.string.this_month),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            // Upload row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                DataStat(label = stringResource(R.string.last_minute), value = "%.1f KB".format(kbLastMinute))
-                DataStat(label = stringResource(R.string.last_hour), value = "%.2f MB".format(mbLastHour))
-                DataStat(label = stringResource(R.string.this_month), value = "%.1f MB".format(mbThisMonth))
+                Text(
+                    text = stringResource(R.string.data_upload),
+                    fontSize = 12.sp,
+                    color = Color(0xFF2196F3),
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = formatMb(mbUploadThisWeek),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = formatMb(mbUploadThisMonth),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            // Download row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.data_download),
+                    fontSize = 12.sp,
+                    color = Color(0xFF4CAF50),
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = formatMb(mbDownloadThisWeek),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = formatMb(mbDownloadThisMonth),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
+}
+
+private fun formatMb(mb: Float): String {
+    return if (mb < 0.01f) "%.0f KB".format(mb * 1024f)
+    else "%.2f MB".format(mb)
 }
 
 @Composable
@@ -397,220 +526,107 @@ private fun HitCounterCard(
 }
 
 /**
- * Four big buttons for manual pothole reporting.
+ * Two big buttons for pothole reporting.
  *
- * Layout:  [  Hiii !  ] [ HIIIIIII !!! ]
- *          [  Ouch !  ] [  AYOYE !     ]
+ * Layout:  [ iiiiiiiii !!! ] [ AYOYE !?!#$! ]
+ *            Almost (amber)    Hit (red)
  *
- * Top row  = "I see a pothole" (visual, no accelerometer data).
- * Bottom row = "I just hit a pothole" (captures last 5 s of accel data).
- *
+ * Tap = report. Long-press = voice training for that category.
  * Buttons are intentionally large so the driver can tap without looking.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ReportButtonsPanel(
-    onVisualSmall: () -> Unit,
-    onVisualBig: () -> Unit,
-    onImpactSmall: () -> Unit,
-    onImpactBig: () -> Unit,
+    onAlmost: () -> Unit,
+    onHit: () -> Unit,
+    onCancel: () -> Unit = {},
+    onAlmostLongPress: () -> Unit = {},
+    onHitLongPress: () -> Unit = {},
+    onCancelLongPress: () -> Unit = {},
 ) {
-    // Colors: yellow tones for visual (seeing), red/orange tones for impact (hitting)
-    val visualSmallColor = ButtonDefaults.buttonColors(
-        containerColor = Color(0xFFFDD835),  // yellow
-        contentColor = Color(0xFF212121),
-    )
-    val visualBigColor = ButtonDefaults.buttonColors(
-        containerColor = Color(0xFFFF8F00),  // amber
-        contentColor = Color.White,
-    )
-    val impactSmallColor = ButtonDefaults.buttonColors(
-        containerColor = Color(0xFFFF7043),  // deep orange
-        contentColor = Color.White,
-    )
-    val impactBigColor = ButtonDefaults.buttonColors(
-        containerColor = Color(0xFFD32F2F),  // red
-        contentColor = Color.White,
-    )
+    val btnHeight = 72.dp
 
-    val btnHeight = 56.dp
-
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        // Top row: visual reports ("I see it")
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Button(
-                onClick = onVisualSmall,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(btnHeight),
-                colors = visualSmallColor,
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.btn_visual_small),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = stringResource(R.string.btn_visual_small_hint),
-                        fontSize = 9.sp,
-                    )
-                }
-            }
-            Button(
-                onClick = onVisualBig,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(btnHeight),
-                colors = visualBigColor,
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.btn_visual_big),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.btn_visual_big_hint),
-                        fontSize = 9.sp,
-                    )
-                }
-            }
-        }
-
-        // Bottom row: impact reports ("I hit it")
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Button(
-                onClick = onImpactSmall,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(btnHeight),
-                colors = impactSmallColor,
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.btn_impact_small),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = stringResource(R.string.btn_impact_small_hint),
-                        fontSize = 9.sp,
-                    )
-                }
-            }
-            Button(
-                onClick = onImpactBig,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(btnHeight),
-                colors = impactBigColor,
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.btn_impact_big),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.btn_impact_big_hint),
-                        fontSize = 9.sp,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Dev-mode sliders for tuning detection sensitivity while driving.
- *
- * Two parameters:
- * - thresholdFactor: multiplier over rolling baseline (e.g. 3.0 = 3x baseline)
- * - minMagnitudeMg: absolute floor in milli-g (e.g. 150 = 0.15G)
- */
-@Composable
-private fun SensitivitySliders(
-    thresholdFactor: Double,
-    onThresholdFactorChanged: (Double) -> Unit,
-    minMagnitudeMg: Int,
-    onMinMagnitudeChanged: (Int) -> Unit,
-    currentBaselineMg: Int = 0,
-) {
-    Card(
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
-        ),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = "Detection Sensitivity",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.error,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Live rolling baseline + computed trigger threshold
-            val triggerAt = (currentBaselineMg * thresholdFactor).toInt()
-            Text(
-                text = "baseline = $currentBaselineMg mg  \u2192  trigger at ${maxOf(triggerAt, minMagnitudeMg)} mg",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color(0xFFFF6D00),
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Slider 1: thresholdFactor (1.5 .. 8.0)
-            Text(
-                text = "thresholdFactor = %.1f".format(thresholdFactor),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = "Baseline multiplier \u2014 higher = less sensitive",
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-            )
-            Slider(
-                value = thresholdFactor.toFloat(),
-                onValueChange = { onThresholdFactorChanged(it.toDouble()) },
-                valueRange = 1.5f..8.0f,
-                steps = 12,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Slider 2: minMagnitudeMg (50 .. 500)
-            Text(
-                text = "minMagnitudeMg = $minMagnitudeMg",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = "Absolute floor in milli-g \u2014 higher = less sensitive",
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-            )
-            Slider(
-                value = minMagnitudeMg.toFloat(),
-                onValueChange = { onMinMagnitudeChanged(it.toInt()) },
-                valueRange = 50f..500f,
-                steps = 8,
-                modifier = Modifier.fillMaxWidth(),
-            )
+        // Almost button (amber) — long-press for voice training
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(btnHeight)
+                .background(Color(0xFFFF8F00), RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = onAlmost,
+                    onLongClick = onAlmostLongPress,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = stringResource(R.string.btn_almost),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                )
+                Text(
+                    text = stringResource(R.string.btn_almost_hint),
+                    fontSize = 9.sp,
+                    color = Color.White,
+                )
+            }
+        }
+        // Hit button (red) — long-press for voice training
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(btnHeight)
+                .background(Color(0xFFD32F2F), RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = onHit,
+                    onLongClick = onHitLongPress,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = stringResource(R.string.btn_hit),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                )
+                Text(
+                    text = stringResource(R.string.btn_hit_hint),
+                    fontSize = 9.sp,
+                    color = Color.White,
+                )
+            }
+        }
+        // Cancel button (grey/blue) — long-press for voice training
+        Box(
+            modifier = Modifier
+                .weight(0.5f)
+                .height(btnHeight)
+                .background(Color(0xFF546E7A), RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = onCancel,
+                    onLongClick = onCancelLongPress,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = stringResource(R.string.btn_cancel),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                )
+                Text(
+                    text = stringResource(R.string.btn_cancel_hint),
+                    fontSize = 8.sp,
+                    color = Color.White.copy(alpha = 0.8f),
+                )
+            }
         }
     }
 }

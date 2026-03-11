@@ -2,92 +2,95 @@ package fr.nidsdepoule.app.reporting
 
 import org.junit.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class DataUsageTrackerTest {
 
     @Test
     fun `test initial state is zero`() {
         val tracker = DataUsageTracker()
-        assertEquals(0f, tracker.kbLastMinute())
-        assertEquals(0f, tracker.mbLastHour())
-        assertEquals(0f, tracker.mbThisMonth())
+        assertEquals(0f, tracker.mbUploadThisWeek())
+        assertEquals(0f, tracker.mbDownloadThisWeek())
+        assertEquals(0f, tracker.mbUploadThisMonth())
+        assertEquals(0f, tracker.mbDownloadThisMonth())
     }
 
     @Test
-    fun `test recording bytes updates all counters`() {
+    fun `test recording upload and download bytes`() {
         val tracker = DataUsageTracker()
-        tracker.record(1024)  // 1 KB
+        tracker.record(bytesSent = 1024 * 1024, bytesReceived = 2 * 1024 * 1024)
 
-        assertEquals(1.0f, tracker.kbLastMinute())
-        assertTrue(tracker.mbLastHour() > 0)
-        assertTrue(tracker.mbThisMonth() > 0)
+        assertEquals(1.0f, tracker.mbUploadThisWeek())
+        assertEquals(2.0f, tracker.mbDownloadThisWeek())
+        assertEquals(1.0f, tracker.mbUploadThisMonth())
+        assertEquals(2.0f, tracker.mbDownloadThisMonth())
     }
 
     @Test
     fun `test month counter accumulates`() {
         val tracker = DataUsageTracker()
-        tracker.record(1024 * 1024)  // 1 MB
-        tracker.record(1024 * 1024)  // 1 MB
+        tracker.record(bytesSent = 1024 * 1024, bytesReceived = 512 * 1024)
+        tracker.record(bytesSent = 1024 * 1024, bytesReceived = 512 * 1024)
 
-        assertEquals(2.0f, tracker.mbThisMonth())
+        assertEquals(2.0f, tracker.mbUploadThisMonth())
+        assertEquals(1.0f, tracker.mbDownloadThisMonth())
     }
 
     @Test
-    fun `test month reset clears month counter`() {
+    fun `test month reset clears month counters`() {
         val tracker = DataUsageTracker()
-        tracker.record(1024 * 1024)
-        assertEquals(1.0f, tracker.mbThisMonth())
+        tracker.record(bytesSent = 1024 * 1024, bytesReceived = 1024 * 1024)
+        assertEquals(1.0f, tracker.mbUploadThisMonth())
 
         tracker.resetMonth()
-        assertEquals(0f, tracker.mbThisMonth())
+        assertEquals(0f, tracker.mbUploadThisMonth())
+        assertEquals(0f, tracker.mbDownloadThisMonth())
     }
 
     @Test
-    fun `test restore month state`() {
+    fun `test week reset clears week counters`() {
+        val tracker = DataUsageTracker()
+        tracker.record(bytesSent = 1024 * 1024, bytesReceived = 1024 * 1024)
+        assertEquals(1.0f, tracker.mbUploadThisWeek())
+
+        tracker.resetWeek()
+        assertEquals(0f, tracker.mbUploadThisWeek())
+        assertEquals(0f, tracker.mbDownloadThisWeek())
+        // Month should still have data
+        assertEquals(1.0f, tracker.mbUploadThisMonth())
+    }
+
+    @Test
+    fun `test restore full state`() {
+        val tracker = DataUsageTracker()
+        tracker.restore(
+            weekUp = 1024 * 1024,
+            weekDown = 2 * 1024 * 1024,
+            weekStart = 1000L,
+            monthUp = 5L * 1024 * 1024,
+            monthDown = 10L * 1024 * 1024,
+            monthStart = 2000L,
+        )
+
+        assertEquals(1.0f, tracker.mbUploadThisWeek())
+        assertEquals(2.0f, tracker.mbDownloadThisWeek())
+        assertEquals(5.0f, tracker.mbUploadThisMonth())
+        assertEquals(10.0f, tracker.mbDownloadThisMonth())
+    }
+
+    @Test
+    fun `test restoreMonth backward compat`() {
         val tracker = DataUsageTracker()
         tracker.restoreMonth(5 * 1024 * 1024, 1000L)
 
-        assertEquals(5.0f, tracker.mbThisMonth())
+        assertEquals(5.0f, tracker.mbUploadThisMonth())
     }
 
     @Test
-    fun `test old entries are pruned from sliding window`() {
-        var fakeTime = 0L
-        val tracker = DataUsageTracker(nowMs = { fakeTime })
+    fun `test record with zero bytesReceived`() {
+        val tracker = DataUsageTracker()
+        tracker.record(bytesSent = 1024)
 
-        // Record at time 0
-        tracker.record(1024)
-        assertEquals(1.0f, tracker.kbLastMinute())
-
-        // Advance past 1 minute
-        fakeTime = 61_000
-        assertEquals(0f, tracker.kbLastMinute(), "Old entries should fall out of minute window")
-
-        // But still in hour window
-        assertTrue(tracker.bytesLastHour() > 0)
-
-        // Advance past 1 hour
-        fakeTime = 3_601_000
-        assertEquals(0L, tracker.bytesLastHour())
-    }
-
-    @Test
-    fun `test multiple records in time window`() {
-        var fakeTime = 0L
-        val tracker = DataUsageTracker(nowMs = { fakeTime })
-
-        tracker.record(500)
-        fakeTime = 10_000
-        tracker.record(300)
-        fakeTime = 30_000
-        tracker.record(200)
-
-        // All three in last minute
-        assertEquals(1000L, tracker.bytesLastMinute())
-
-        // Advance so first record drops out
-        fakeTime = 61_000
-        assertEquals(500L, tracker.bytesLastMinute())
+        assertEquals(0f, tracker.mbDownloadThisWeek())
+        assertEquals(0f, tracker.mbDownloadThisMonth())
     }
 }

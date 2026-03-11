@@ -56,6 +56,8 @@ class ClientMessageData:
     hits: list[HitData] = field(default_factory=list)
     heartbeat_timestamp_ms: int | None = None
     heartbeat_pending_hits: int = 0
+    heartbeat_lat: float | None = None
+    heartbeat_lon: float | None = None
     source: str = "auto"
 
 

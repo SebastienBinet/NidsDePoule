@@ -14,11 +14,13 @@ import java.util.concurrent.TimeUnit
  */
 class OkHttpClientAdapter : HttpClient {
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build()
+    private val client by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
 
     override suspend fun postJson(url: String, jsonBody: String): HttpResult {
         return withContext(Dispatchers.IO) {
@@ -38,6 +40,7 @@ class OkHttpClientAdapter : HttpClient {
                     statusCode = response.code,
                     body = responseBody,
                     bytesSent = jsonBody.toByteArray().size,
+                    bytesReceived = responseBody.toByteArray().size,
                 )
             } catch (e: IOException) {
                 HttpResult(
@@ -58,6 +61,7 @@ class OkHttpClientAdapter : HttpClient {
                     success = response.isSuccessful,
                     statusCode = response.code,
                     body = responseBody,
+                    bytesReceived = responseBody.toByteArray().size,
                 )
             } catch (e: IOException) {
                 HttpResult(

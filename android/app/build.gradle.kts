@@ -24,6 +24,9 @@ android {
 
         val buildTime = SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())
         buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
+
+        val versionLabel = rootProject.file("../VERSION_LABEL").readText().trim()
+        buildConfigField("String", "VERSION_LABEL", "\"$versionLabel\"")
     }
 
     buildTypes {
@@ -92,6 +95,9 @@ dependencies {
 
     // Google Play Services (Fused Location Provider)
     implementation("com.google.android.gms:play-services-location:21.0.1")
+
+    // OpenStreetMap (map widget — no API key required)
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

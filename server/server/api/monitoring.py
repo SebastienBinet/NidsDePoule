@@ -65,6 +65,17 @@ async def stats() -> dict:
     return get_stats().snapshot()
 
 
+@router.get("/devices/active")
+async def active_devices() -> list:
+    """Return active devices with their last known GPS position.
+
+    Used by the dashboard to show green dots on the map.
+    """
+    from server.main import get_stats
+
+    return get_stats().active_devices_with_locations()
+
+
 @router.get("/config")
 async def get_client_config() -> dict:
     """Configuration endpoint for the Android app.

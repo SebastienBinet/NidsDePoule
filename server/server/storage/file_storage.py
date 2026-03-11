@@ -123,6 +123,76 @@ class FileHitStorage:
         for record in records:
             await self.store(record)
 
+    def delete_hits(self, record_ids: set[int]) -> int:
+        """Delete hits by record_id. Rewrites affected .binpb files.
+
+        Returns the number of records actually deleted.
+        """
+        deleted = 0
+        for binpb_path in self._base_dir.rglob("hits.binpb"):
+            try:
+                data = binpb_path.read_bytes()
+                records: list[tuple[bytes, dict]] = []
+                offset = 0
+                while offset + 4 <= len(data):
+                    length = struct.unpack("<I", data[offset:offset + 4])[0]
+                    offset += 4
+                    if offset + length > len(data):
+                        break
+                    payload = data[offset:offset + length]
+                    offset += length
+                    try:
+                        record = json.loads(payload)
+                        records.append((payload, record))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
+
+                # Filter out deleted records
+                kept: list[bytes] = []
+                file_deleted = 0
+                for payload, record in records:
+                    rid = record.get("record_id", -1)
+                    if rid in record_ids:
+                        file_deleted += 1
+                    else:
+                        kept.append(payload)
+
+                if file_deleted == 0:
+                    continue
+
+                deleted += file_deleted
+
+                # Rewrite the binpb file atomically
+                tmp_path = binpb_path.with_suffix(".tmp")
+                with open(tmp_path, "wb") as f:
+                    for payload in kept:
+                        f.write(struct.pack("<I", len(payload)))
+                        f.write(payload)
+                tmp_path.replace(binpb_path)
+
+                # Also rebuild the jsonl index
+                jsonl_path = binpb_path.with_name("hits.jsonl")
+                if jsonl_path.exists():
+                    jsonl_tmp = jsonl_path.with_suffix(".tmp")
+                    with open(jsonl_tmp, "w") as f:
+                        for payload in kept:
+                            rec = json.loads(payload)
+                            entry = {
+                                "id": rec.get("record_id", 0),
+                                "device": rec.get("device_id", "")[:8],
+                                "severity": rec.get("hit", {}).get("pattern", {}).get("severity", 0),
+                                "source": rec.get("source", "auto"),
+                            }
+                            f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+                    jsonl_tmp.replace(jsonl_path)
+
+                log.info("hits_deleted", path=str(binpb_path), count=file_deleted)
+
+            except OSError:
+                log.warning("delete_failed", path=str(binpb_path))
+
+        return deleted
+
     def read_all_hits(self) -> list[dict]:
         """Read all hit records from .binpb files.
 

@@ -6,43 +6,67 @@ import android.util.Log
 import java.util.Locale
 
 /**
- * French text-to-speech voice feedback for pothole detections.
+ * French text-to-speech voice feedback for pothole reports.
  *
- * Speaks "Aïe !" for small hits and "AYOYE !" for big hits,
- * using the Android TTS engine in French.
+ * Almost (severity < 3) → "Attention !"
+ * Hit (severity >= 3)   → "AYOYE !"
  */
-class VoiceFeedback(context: Context) {
+class VoiceFeedback(private val context: Context) {
+
+    private var tts: TextToSpeech? = null
+    @Volatile private var ready = false
+    private var initStarted = false
+
+    /**
+     * Start TTS initialization on a background thread.
+     * Call early so TTS is ready by the time the user triggers a report.
+     */
+    fun ensureInitialized() {
+        if (initStarted) return
+        initStarted = true
+        Thread({
+            tts = TextToSpeech(context.applicationContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    val result = tts?.setLanguage(Locale.CANADA_FRENCH)
+                        ?: TextToSpeech.LANG_NOT_SUPPORTED
+                    if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        tts?.setLanguage(Locale.FRENCH)
+                    }
+                    tts?.setSpeechRate(1.3f)
+                    ready = true
+                    Log.i(TAG, "TTS initialized in French")
+                } else {
+                    Log.w(TAG, "TTS init failed with status $status")
+                }
+            }
+        }, "TTS-Init").start()
+    }
+
+    /** Speak a short phrase: Almost (severity < 3) → "Attention !", Hit (severity >= 3) → "AYOYE !". */
+    fun speakHit(severity: Int) {
+        if (!ready) return
+        val phrase = if (severity >= 3) "AYOYE !" else "Attention !"
+        tts?.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "hit_${System.currentTimeMillis()}")
+    }
+
+    /** Speak a random pothole proximity warning. */
+    fun speakProximityWarning() {
+        if (!ready) return
+        val phrase = PROXIMITY_PHRASES.random()
+        tts?.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "warn_${System.currentTimeMillis()}")
+    }
 
     companion object {
         private const val TAG = "VoiceFeedback"
-    }
 
-    private var tts: TextToSpeech? = null
-    private var ready = false
-
-    init {
-        tts = TextToSpeech(context.applicationContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                val result = tts?.setLanguage(Locale.CANADA_FRENCH)
-                    ?: TextToSpeech.LANG_NOT_SUPPORTED
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    // Fall back to generic French
-                    tts?.setLanguage(Locale.FRENCH)
-                }
-                tts?.setSpeechRate(1.3f)  // slightly faster for urgency
-                ready = true
-                Log.i(TAG, "TTS initialized in French")
-            } else {
-                Log.w(TAG, "TTS init failed with status $status")
-            }
-        }
-    }
-
-    /** Speak a short phrase for a detected hit (severity 1-2 = small, 3 = big). */
-    fun speakHit(severity: Int) {
-        if (!ready) return
-        val phrase = if (severity >= 3) "AYOYE !" else "Aïe !"
-        tts?.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "hit_${System.currentTimeMillis()}")
+        /** 5 funny French phrases for approaching a known pothole. */
+        val PROXIMITY_PHRASES = listOf(
+            "Wô, attention devant !",
+            "Ça va brasser !",
+            "Accrochez-vous !",
+            "Oups, nid de poule !",
+            "Aïe aïe aïe !",
+        )
     }
 
     /** Speak an arbitrary phrase in French. */

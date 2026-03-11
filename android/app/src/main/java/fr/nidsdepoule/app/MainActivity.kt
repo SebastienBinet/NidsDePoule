@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
+import fr.nidsdepoule.app.sensor.VoiceCommandListener
 import fr.nidsdepoule.app.ui.MainScreen
 
 class MainActivity : ComponentActivity() {
@@ -27,17 +28,29 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
         if (fineGranted) {
-            startDetection()
+            window.decorView.post { startDetection() }
+        }
+    }
+
+    private val audioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.voiceCommandListener.start()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val t0 = System.currentTimeMillis()
+        android.util.Log.d("NDP_INIT", "onCreate START")
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
+        android.util.Log.d("NDP_INIT", "+${System.currentTimeMillis()-t0}ms after ViewModel")
 
         // Keep screen on while detection is active
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        android.util.Log.d("NDP_INIT", "+${System.currentTimeMillis()-t0}ms before setContent")
         setContent {
             NidsDePouleTheme {
                 Surface(
@@ -46,48 +59,77 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainScreen(
                         accelSamples = viewModel.accelSamples,
-                        isMounted = viewModel.isMounted,
                         hasGpsFix = viewModel.hasGpsFix,
                         isConnected = viewModel.isConnected,
-                        reportingMode = viewModel.reportingMode,
-                        onModeChanged = { viewModel.setMode(it) },
                         hitsDetected = viewModel.hitsDetected,
                         hitsSent = viewModel.hitReporter.hitsSent,
                         hitsPending = viewModel.hitReporter.pendingCount,
-                        kbLastMinute = viewModel.kbLastMinute,
-                        mbLastHour = viewModel.mbLastHour,
-                        mbThisMonth = viewModel.mbThisMonth,
+                        mbUploadThisWeek = viewModel.mbUploadThisWeek,
+                        mbDownloadThisWeek = viewModel.mbDownloadThisWeek,
+                        mbUploadThisMonth = viewModel.mbUploadThisMonth,
+                        mbDownloadThisMonth = viewModel.mbDownloadThisMonth,
                         appVersion = viewModel.appVersionName,
                         buildTime = BuildConfig.BUILD_TIME,
+                        versionLabel = BuildConfig.VERSION_LABEL,
                         devModeEnabled = viewModel.devModeEnabled,
-                        onVisualSmall = { viewModel.onReportVisualSmall() },
-                        onVisualBig = { viewModel.onReportVisualBig() },
-                        onImpactSmall = { viewModel.onReportImpactSmall() },
-                        onImpactBig = { viewModel.onReportImpactBig() },
+                        onAlmost = { viewModel.onReportAlmost() },
+                        onHit = { viewModel.onReportHit() },
+                        onCancel = { viewModel.onReportCancel() },
                         hitFlashActive = viewModel.hitFlashActive,
                         hitFlashText = viewModel.hitFlashText,
                         isSimulating = viewModel.isSimulating,
                         onToggleSimulation = { viewModel.toggleSimulation() },
                         onDevModeTap = { viewModel.onDevModeTap() },
                         serverUrl = viewModel.serverUrl,
-                        onServerUrlChanged = { viewModel.updateServerUrl(it) },
                         voiceMuted = viewModel.voiceMuted,
                         onToggleVoice = { viewModel.toggleVoice() },
-                        thresholdFactor = viewModel.thresholdFactor,
-                        onThresholdFactorChanged = { viewModel.updateThresholdFactor(it) },
-                        minMagnitudeMg = viewModel.minMagnitudeMg,
-                        onMinMagnitudeChanged = { viewModel.updateMinMagnitudeMg(it) },
-                        currentBaselineMg = viewModel.currentBaselineMg,
+                        isListening = viewModel.voiceCommandListener.isListening,
+                        // Map
+                        locationHistory = viewModel.locationHistorySnapshot,
+                        mapMarkers = viewModel.mapMarkers,
+                        currentSpeedMps = viewModel.currentSpeedMps,
+                        // Voice training
+                        showVoiceTraining = viewModel.showVoiceTraining,
+                        voiceTrainingKeywords = viewModel.voiceTrainingKeywords,
+                        voiceTrainingLabel = viewModel.voiceTrainingLabel,
+                        onAlmostLongPress = {
+                            viewModel.startVoiceTraining(
+                                VoiceCommandListener.ALMOST_KEYWORDS, "Almost"
+                            )
+                        },
+                        onHitLongPress = {
+                            viewModel.startVoiceTraining(
+                                VoiceCommandListener.HIT_KEYWORDS, "Hit"
+                            )
+                        },
+                        onCancelLongPress = {
+                            viewModel.startVoiceTraining(
+                                VoiceCommandListener.CANCEL_KEYWORDS, "Non"
+                            )
+                        },
+                        onVoiceTrainingDismiss = { viewModel.onVoiceTrainingDismiss() },
+                        onVoiceTrainingComplete = { viewModel.onVoiceTrainingComplete() },
+                        profileStore = viewModel.voiceCommandListener.getProfileStore(),
+                        mfccExtractor = viewModel.voiceCommandListener.getMfccExtractor(),
+                        // Voice match overlay
+                        voiceMatchScores = viewModel.voiceCommandListener.matchScores,
                     )
                 }
             }
         }
+        android.util.Log.d("NDP_INIT", "setContent done (returned)")
     }
 
     override fun onResume() {
         super.onResume()
+        android.util.Log.d("NDP_INIT", "onResume")
         if (hasLocationPermission()) {
-            startDetection()
+            // Defer to let Compose render the first frame before heavy init
+            window.decorView.post {
+                android.util.Log.d("NDP_INIT", "startDetection (deferred) START")
+                startDetection()
+                android.util.Log.d("NDP_INIT", "startDetection (deferred) END")
+            }
         } else {
             locationPermissionLauncher.launch(
                 arrayOf(
@@ -98,26 +140,34 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // No onPause/stop — detection continues in background via foreground service.
-    // The ViewModel and sensors keep running as long as the service is alive.
-
     override fun onDestroy() {
         super.onDestroy()
-        // Only stop when the activity is truly destroyed (user swipes away from recents)
-        stopService(Intent(this, DetectionService::class.java))
+        if (!DebugFlags.DISABLE_SERVICE) {
+            stopService(Intent(this, DetectionService::class.java))
+        }
         viewModel.stop()
     }
 
     private fun startDetection() {
         viewModel.start()
-        // Start foreground service to keep detection alive in background
-        val serviceIntent = Intent(this, DetectionService::class.java)
-        startForegroundService(serviceIntent)
+        if (!DebugFlags.DISABLE_SERVICE) {
+            val serviceIntent = Intent(this, DetectionService::class.java)
+            startForegroundService(serviceIntent)
+        }
         // Request notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
                 locationPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+            }
+        }
+        // Request microphone permission for voice commands
+        if (!DebugFlags.DISABLE_VOICE) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) {
+                viewModel.voiceCommandListener.start()
+            } else {
+                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
         }
     }

@@ -57,10 +57,19 @@ def _parse_json_message(body: dict) -> ClientMessageData:
         hit = _parse_json_hit(body["hit"])
     if "batch" in body:
         hits = [_parse_json_hit(h) for h in body["batch"].get("hits", [])]
+    heartbeat_lat = None
+    heartbeat_lon = None
     if "heartbeat" in body:
         hb = body["heartbeat"]
         heartbeat_ts = hb.get("timestamp_ms", 0)
         heartbeat_pending = hb.get("pending_hits", 0)
+        hb_loc = hb.get("location")
+        if hb_loc:
+            lat_micro = hb_loc.get("lat_microdeg", 0)
+            lon_micro = hb_loc.get("lon_microdeg", 0)
+            if lat_micro or lon_micro:
+                heartbeat_lat = lat_micro / 1_000_000
+                heartbeat_lon = lon_micro / 1_000_000
 
     return ClientMessageData(
         protocol_version=body.get("protocol_version", 1),
@@ -70,6 +79,8 @@ def _parse_json_message(body: dict) -> ClientMessageData:
         hits=hits,
         heartbeat_timestamp_ms=heartbeat_ts,
         heartbeat_pending_hits=heartbeat_pending,
+        heartbeat_lat=heartbeat_lat,
+        heartbeat_lon=heartbeat_lon,
         source=body.get("source", "auto"),
     )
 

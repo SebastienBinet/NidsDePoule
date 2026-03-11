@@ -139,6 +139,10 @@ message Heartbeat {
 
   // Number of hits queued locally, waiting to be uploaded.
   uint32 pending_hits = 2;
+
+  // Current GPS location (so the dashboard can show a live device dot
+  // even when no potholes are being detected).
+  Location location = 3;
 }
 
 // ============================================================

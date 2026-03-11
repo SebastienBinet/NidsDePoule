@@ -2,17 +2,15 @@ package fr.nidsdepoule.app
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
-import fr.nidsdepoule.app.detection.CarMountDetector
-import fr.nidsdepoule.app.detection.HitDetectionStrategy
+import fr.nidsdepoule.app.detection.AccelRecorder
 import fr.nidsdepoule.app.detection.HitEvent
 import fr.nidsdepoule.app.detection.ReportSource
-import fr.nidsdepoule.app.detection.ThresholdHitDetector
 import fr.nidsdepoule.app.reporting.DataUsageTracker
 import fr.nidsdepoule.app.reporting.HitReportData
 import fr.nidsdepoule.app.reporting.HitReporter
@@ -25,7 +23,10 @@ import fr.nidsdepoule.app.sensor.CircuitLocationSource
 import fr.nidsdepoule.app.sensor.LocationCallback
 import fr.nidsdepoule.app.sensor.LocationReading
 import fr.nidsdepoule.app.sensor.LocationSource
+import fr.nidsdepoule.app.sensor.VoiceCommandListener
 import fr.nidsdepoule.app.ui.AccelerationBuffer
+import fr.nidsdepoule.app.ui.MapMarkerData
+import fr.nidsdepoule.app.ui.MapMarkerType
 import fr.nidsdepoule.app.ui.VoiceFeedback
 import android.os.Handler
 import android.os.Looper
@@ -35,15 +36,17 @@ import kotlin.math.sqrt
 /**
  * ViewModel that connects all modules and exposes observable state to the UI.
  *
- * Module wiring:
- *   Accelerometer (TYPE_LINEAR_ACCELERATION) → magnitude → HitDetector + AccelBuffer
- *   Accelerometer → CarMountDetector (stability detection)
- *   GPS → LocationTracker → (bearing before/after computation)
- *   HitDetector + LocationTracker → HitReporter → Server
+ * Two report types:
+ *   Almost ("iiiiiiiii !!!") — pothole spotted nearby → geo only
+ *   Hit ("AYOYE !?!#$!") — just drove over one → geo + 5s accel data
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
+    // Timing tag — merged into companion object at bottom of class
+    private val TAG_INIT = "NDP_INIT"
+
     // --- Configuration ---
+    private val t0 = System.currentTimeMillis().also { Log.d(TAG_INIT, "ViewModel constructor START") }
     private val prefs = application.getSharedPreferences("nidsdepoule", Context.MODE_PRIVATE)
     val deviceId: String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("device_id", it).apply()
@@ -56,29 +59,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     } catch (_: Exception) { "0.1.0" }
 
     // --- Core modules ---
-    private val hitDetector = ThresholdHitDetector()
-    private val carMountDetector = CarMountDetector()
+    private val accelRecorder = AccelRecorder().also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms accelRecorder") }
     val accelBuffer = AccelerationBuffer()
     private val dataUsageTracker = DataUsageTracker()
-    private val voiceFeedback = VoiceFeedback(application)
+    private val voiceFeedback = VoiceFeedback(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceFeedback") }
+    val voiceCommandListener = VoiceCommandListener(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceCommandListener") }
 
     // --- Platform adapters ---
-    private val accelerometer: AccelerometerSource = AndroidAccelerometer(application)
-    private val realLocationSource: LocationSource = AndroidLocationSource(application)
-    private val circuitLocationSource: LocationSource = CircuitLocationSource(application)
+    private val accelerometer: AccelerometerSource = AndroidAccelerometer(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms accelerometer") }
+    private val realLocationSource: LocationSource = AndroidLocationSource(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms locationSource") }
+    private val circuitLocationSource: LocationSource = CircuitLocationSource(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms circuitSrc") }
     private var activeLocationSource: LocationSource = realLocationSource
 
-    // --- Server URL (persisted, editable in dev mode) ---
+    // --- Server URL (persisted, read-only in UI) ---
     var serverUrl by mutableStateOf(
         prefs.getString("server_url", null) ?: BuildConfig.DEFAULT_SERVER_URL
     )
         private set
-
-    fun updateServerUrl(url: String) {
-        serverUrl = url
-        hitReporter.serverUrl = url
-        prefs.edit().putString("server_url", url).apply()
-    }
 
     // --- Reporting ---
     private val httpClient = OkHttpClientAdapter()
@@ -88,14 +85,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         deviceId = deviceId,
         appVersion = appVersion,
         serverUrl = serverUrl,
-    )
+    ).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms hitReporter — ViewModel constructor DONE") }
 
     // --- Location tracking for bearing before/after ---
     private val locationHistory = ArrayDeque<LocationReading>(100)
     private var lastLocation: LocationReading? = null
 
     // --- Observable UI state ---
-    var isMounted by mutableStateOf(false)
+    var currentSpeedMps by mutableStateOf(0f)
         private set
     var hasGpsFix by mutableStateOf(false)
         private set
@@ -109,35 +106,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var accelSamples by mutableStateOf<List<AccelerationBuffer.Sample>>(emptyList())
         private set
-    /** True for a short moment after a hit is detected — drives visual flash. */
     var hitFlashActive by mutableStateOf(false)
         private set
-    /** Text shown in the flash overlay — matches the button that was pressed. */
     var hitFlashText by mutableStateOf("HIT!")
         private set
-    /** True when circuit simulation is running instead of real GPS. */
     var isSimulating by mutableStateOf(false)
         private set
-    /** When true, voice feedback is muted. Default: unmuted (voice active). */
     var voiceMuted by mutableStateOf(false)
         private set
 
-    // --- Dev-mode tuning: detection sensitivity ---
-    /** Relative threshold factor (baseline × factor). Higher = less sensitive. */
-    var thresholdFactor by mutableDoubleStateOf(ThresholdHitDetector.DEFAULT_THRESHOLD_FACTOR)
+    // Counter for throttling graph updates (~5 Hz at 50 Hz sensor rate)
+    private var accelSampleCounter = 0
+
+    // --- Proximity alert state ---
+    /** Set of already-warned pothole positions (lat_lon key) to avoid repeating. */
+    private val warnedPotholes = mutableSetOf<Long>()
+    /** Cooldown: minimum time between two proximity alerts (ms). */
+    private var lastProximityAlertMs = 0L
+
+    // --- Map state ---
+    private var localMarkers by mutableStateOf<List<MapMarkerData>>(emptyList())
+    private var serverMarkers by mutableStateOf<List<MapMarkerData>>(emptyList())
+    var mapMarkers by mutableStateOf<List<MapMarkerData>>(emptyList())
         private set
-    /** Absolute minimum magnitude in milli-g. Higher = less sensitive. */
-    var minMagnitudeMg by mutableIntStateOf(ThresholdHitDetector.DEFAULT_MIN_MAGNITUDE_MG)
+    var locationHistorySnapshot by mutableStateOf<List<LocationReading>>(emptyList())
         private set
-    /** Current rolling baseline from the detector (median magnitude in milli-g). */
-    var currentBaselineMg by mutableIntStateOf(0)
+
+    // --- Voice training state ---
+    var showVoiceTraining by mutableStateOf(false)
+        private set
+    var voiceTrainingKeywords by mutableStateOf<List<String>>(emptyList())
+        private set
+    var voiceTrainingLabel by mutableStateOf("")
         private set
 
     // Dev mode tap counter
     private var devModeTapCount = 0
     private var lastDevModeTapMs = 0L
 
-    // Handler for UI-thread delayed tasks (e.g., clearing hit flash)
+    // Handler for UI-thread delayed tasks
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // --- Lifecycle ---
@@ -147,65 +154,92 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (isRunning) return
         isRunning = true
 
-        // Wire connectivity callback
-        hitReporter.onConnectivityChanged = { connected ->
-            isConnected = connected
+        // Start TTS initialization on a background thread
+        if (!DebugFlags.DISABLE_TTS) {
+            voiceFeedback.ensureInitialized()
         }
-        // Initial server health check
-        hitReporter.checkConnectivity()
 
-        // Restore month data
-        val savedMonthBytes = prefs.getLong("month_bytes", 0)
-        val savedMonthStart = prefs.getLong("month_start_ms", 0)
-        dataUsageTracker.restoreMonth(savedMonthBytes, savedMonthStart)
+        // Wire connectivity callback
+        if (!DebugFlags.DISABLE_NETWORK) {
+            hitReporter.onConnectivityChanged = { connected ->
+                isConnected = connected
+            }
+            hitReporter.checkConnectivity()
+        }
+
+        // Restore data usage counters (week + month, upload + download)
+        dataUsageTracker.restore(
+            weekUp = prefs.getLong("week_upload_bytes", 0),
+            weekDown = prefs.getLong("week_download_bytes", 0),
+            weekStart = prefs.getLong("week_start_ms", 0),
+            monthUp = prefs.getLong("month_upload_bytes", prefs.getLong("month_bytes", 0)),
+            monthDown = prefs.getLong("month_download_bytes", 0),
+            monthStart = prefs.getLong("month_start_ms", 0),
+        )
 
         // Start accelerometer (TYPE_LINEAR_ACCELERATION — gravity already removed)
-        accelerometer.start(AccelerometerCallback { timestamp, x, y, z ->
-            // Compute orientation-independent magnitude: sqrt(x² + y² + z²)
-            val magnitudeMg = sqrt((x.toLong() * x + y.toLong() * y + z.toLong() * z).toFloat()).toInt()
+        if (!DebugFlags.DISABLE_ACCELEROMETER) {
+            accelerometer.start(AccelerometerCallback { timestamp, x, y, z ->
+                val magnitudeMg = sqrt((x.toLong() * x + y.toLong() * y + z.toLong() * z).toFloat()).toInt()
 
-            // Feed acceleration buffer (for graph display)
-            accelBuffer.add(timestamp, magnitudeMg)
+                // Buffer for graph display
+                accelBuffer.add(timestamp, magnitudeMg)
 
-            // Feed car mount detector (for status display)
-            carMountDetector.processReading(x, y, z)
-            isMounted = carMountDetector.isMounted
+                // Buffer for Hit waveform capture
+                accelRecorder.addReading(timestamp, magnitudeMg)
 
-            // Always run hit detection — the minimum magnitude floor in
-            // ThresholdHitDetector prevents false positives from hand movement.
-            // Mount status is shown as an indicator but doesn't gate detection.
-            val speed = lastLocation?.speedMps ?: 0f
-            val event = hitDetector.processReading(timestamp, magnitudeMg, speed)
-
-            if (event != null) {
-                hitsDetected++
-                accelBuffer.markLastAsHit()
-                onHitDetected(event)
-            }
-
-            // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
-            if (accelBuffer.size % 10 == 0) {
-                accelSamples = accelBuffer.snapshot(step = 4)
-                currentBaselineMg = hitDetector.currentBaselineMg
-            }
-        })
+                // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
+                accelSampleCounter++
+                if (accelSampleCounter >= 10) {
+                    accelSampleCounter = 0
+                    accelSamples = accelBuffer.snapshot(step = 4)
+                }
+            })
+        }
 
         // Start GPS (real or simulated)
-        startLocationSource()
+        if (!DebugFlags.DISABLE_LOCATION) {
+            startLocationSource()
+        }
+
+        // Start heartbeat timer (sends current location to server every 10s)
+        if (!DebugFlags.DISABLE_NETWORK) {
+            hitReporter.startHeartbeat()
+
+            // Fetch server-known potholes periodically
+            hitReporter.onPotholesFetched = { markers ->
+                serverMarkers = markers
+                updateMapMarkers()
+            }
+            hitReporter.startPotholesFetch()
+        }
+
+        // Wire voice command listener
+        if (!DebugFlags.DISABLE_VOICE) {
+            voiceCommandListener.onAlmost = { onVoiceAlmost() }
+            voiceCommandListener.onHit = { onVoiceHit() }
+            voiceCommandListener.onCancel = { cancelPendingVoiceReport() }
+        }
     }
 
     /** Shared location callback used by both real and simulated GPS. */
     private val locationCb = LocationCallback { reading ->
         hasGpsFix = true
         lastLocation = reading
-        carMountDetector.updateSpeed(reading.speedMps)
+        currentSpeedMps = reading.speedMps
+        hitReporter.lastKnownLocation = reading
 
-        // Keep location history for bearing before/after computation
+        // Check proximity to known potholes
+        checkPotholeProximity(reading)
+
         synchronized(locationHistory) {
             locationHistory.addLast(reading)
             if (locationHistory.size > 100) {
                 locationHistory.removeFirst()
             }
+            // Update snapshot for the map (~last 30 seconds at 1Hz = ~30 readings)
+            val cutoff = System.currentTimeMillis() - 30_000
+            locationHistorySnapshot = locationHistory.filter { it.timestampMs >= cutoff }
         }
     }
 
@@ -216,13 +250,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stop() {
         if (!isRunning) return
         isRunning = false
-        accelerometer.stop()
-        activeLocationSource.stop()
-        voiceFeedback.shutdown()
+        if (!DebugFlags.DISABLE_ACCELEROMETER) accelerometer.stop()
+        if (!DebugFlags.DISABLE_LOCATION) activeLocationSource.stop()
+        if (!DebugFlags.DISABLE_NETWORK) {
+            hitReporter.stopHeartbeat()
+            hitReporter.stopPotholesFetch()
+        }
+        if (!DebugFlags.DISABLE_TTS) voiceFeedback.shutdown()
+        if (!DebugFlags.DISABLE_VOICE) voiceCommandListener.stop()
 
-        // Persist month data
+        // Persist data usage counters
         prefs.edit()
-            .putLong("month_bytes", dataUsageTracker.monthBytes)
+            .putLong("week_upload_bytes", dataUsageTracker.weekUploadBytes)
+            .putLong("week_download_bytes", dataUsageTracker.weekDownloadBytes)
+            .putLong("week_start_ms", dataUsageTracker.weekStartMs)
+            .putLong("month_upload_bytes", dataUsageTracker.monthUploadBytes)
+            .putLong("month_download_bytes", dataUsageTracker.monthDownloadBytes)
             .putLong("month_start_ms", dataUsageTracker.monthStartMs)
             .apply()
     }
@@ -250,16 +293,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         voiceMuted = !voiceMuted
     }
 
-    fun updateThresholdFactor(value: Double) {
-        thresholdFactor = value
-        hitDetector.thresholdFactor = value
-    }
-
-    fun updateMinMagnitudeMg(value: Int) {
-        minMagnitudeMg = value
-        hitDetector.minMagnitudeMg = value
-    }
-
     /** Toggle between real GPS and cemetery circuit simulation. */
     fun toggleSimulation() {
         if (!isRunning) return
@@ -272,10 +305,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startLocationSource()
     }
 
-    // --- Manual report buttons ---
+    // --- Report buttons ---
 
-    /** "iiii !" — user visually spots a small/medium pothole. */
-    fun onReportVisualSmall() {
+    /** "iiiiiiiii !!!" — there's a pothole near me (Almost). Geo only, no accel data. */
+    fun onReportAlmost(fromVoice: Boolean = false) {
         val location = lastLocation ?: return
         val event = HitEvent(
             timestampMs = System.currentTimeMillis(),
@@ -287,60 +320,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             waveformLateral = emptyList(),
             baselineMg = 0,
             peakToBaselineRatio = 0,
-            source = ReportSource.VISUAL_SMALL,
+            source = ReportSource.ALMOST,
         )
         hitsDetected++
-        sendReport(event, location, "iiii !")
+        addMapMarker(location, MapMarkerType.ALMOST)
+        sendReport(event, location, "iiiiiiiii !!!", fromVoice = fromVoice)
     }
 
-    /** "iiiiiiiii !!!" — user visually spots a big pothole. */
-    fun onReportVisualBig() {
-        val location = lastLocation ?: return
-        val event = HitEvent(
-            timestampMs = System.currentTimeMillis(),
-            peakVerticalMg = 0,
-            peakLateralMg = 0,
-            durationMs = 0,
-            severity = 3,
-            waveformVertical = emptyList(),
-            waveformLateral = emptyList(),
-            baselineMg = 0,
-            peakToBaselineRatio = 0,
-            source = ReportSource.VISUAL_BIG,
-        )
+    /**
+     * "AYOYE !?!#$!" — I just hit a pothole (Hit).
+     * Finds the biggest acceleration peak in the last 30 seconds,
+     * interpolates GPS position at that timestamp, and reports that position.
+     */
+    fun onReportHit(fromVoice: Boolean = false) {
+        // Find peak in the full 30s buffer and mark it on the graph
+        val peakSample = accelBuffer.findAndMarkPeak()
+        // Force graph update to show the tick mark
+        accelSamples = accelBuffer.snapshot(step = 4)
+
+        val event = buildHitEvent()
         hitsDetected++
-        sendReport(event, location, "iiiiiiiii !!!")
+
+        // Interpolate GPS position at the peak timestamp
+        val peakLocation = if (peakSample != null) {
+            interpolateLocation(peakSample.timestampMs) ?: lastLocation
+        } else {
+            lastLocation
+        }
+        val location = peakLocation ?: return
+
+        // Add map marker at the interpolated peak position
+        addMapMarker(location, MapMarkerType.HIT)
+        sendReport(event, location, "AYOYE !?!#\$!", fromVoice = fromVoice)
     }
 
-    /** "Ouch !" — user just hit a small/medium pothole; capture last 5s of accel data. */
-    fun onReportImpactSmall() {
-        val location = lastLocation ?: return
-        val event = buildImpactEvent(ReportSource.IMPACT_SMALL, userSeverity = 2)
-        hitsDetected++
-        accelBuffer.markLastAsHit()
-        sendReport(event, location, "Ouch !")
-    }
-
-    /** "AYOYE !?!#$!" — user just hit a big pothole; capture last 5s of accel data. */
-    fun onReportImpactBig() {
-        val location = lastLocation ?: return
-        val event = buildImpactEvent(ReportSource.IMPACT_BIG, userSeverity = 3)
-        hitsDetected++
-        accelBuffer.markLastAsHit()
-        sendReport(event, location, "AYOYE !?!#\$!")
-    }
-
-    /** Build a HitEvent from the last 5 seconds of accelerometer data. */
-    private fun buildImpactEvent(source: ReportSource, userSeverity: Int): HitEvent {
-        val readings = hitDetector.recentReadings(5000)
+    /** Build a HitEvent from the last 30 seconds of accelerometer data. */
+    private fun buildHitEvent(): HitEvent {
+        val readings = accelRecorder.recentReadings(30_000)
         if (readings.isEmpty()) {
             return HitEvent(
                 timestampMs = System.currentTimeMillis(),
                 peakVerticalMg = 0, peakLateralMg = 0, durationMs = 0,
-                severity = userSeverity,
+                severity = 3,
                 waveformVertical = emptyList(), waveformLateral = emptyList(),
                 baselineMg = 0, peakToBaselineRatio = 0,
-                source = source,
+                source = ReportSource.HIT,
             )
         }
 
@@ -365,19 +389,156 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         return HitEvent(
             timestampMs = readings[peakIdx].timestamp,
-            peakVerticalMg = peakMag,  // magnitude sent as "vertical" for wire compat
+            peakVerticalMg = peakMag,
             peakLateralMg = 0,
             durationMs = duration,
-            severity = userSeverity,
+            severity = 3,
             waveformVertical = waveform,
             waveformLateral = emptyList(),
             baselineMg = baseline,
             peakToBaselineRatio = ratio,
-            source = source,
+            source = ReportSource.HIT,
         )
     }
 
-    private fun sendReport(event: HitEvent, location: LocationReading, flashText: String = "HIT!") {
+    /** Interpolate GPS position at a given timestamp from the location history. */
+    private fun interpolateLocation(timestampMs: Long): LocationReading? {
+        synchronized(locationHistory) {
+            if (locationHistory.isEmpty()) return null
+            if (locationHistory.size == 1) return locationHistory.first()
+
+            // Find the two readings bracketing the timestamp
+            var before: LocationReading? = null
+            var after: LocationReading? = null
+            for (reading in locationHistory) {
+                if (reading.timestampMs <= timestampMs) {
+                    before = reading
+                } else {
+                    after = reading
+                    break
+                }
+            }
+
+            // If timestamp is before all readings or after all readings, use nearest
+            if (before == null) return locationHistory.first()
+            if (after == null) return locationHistory.last()
+
+            // Linear interpolation
+            val dt = (after.timestampMs - before.timestampMs).toFloat()
+            if (dt <= 0) return before
+            val t = ((timestampMs - before.timestampMs) / dt).coerceIn(0f, 1f)
+
+            return LocationReading(
+                timestampMs = timestampMs,
+                latMicrodeg = (before.latMicrodeg + t * (after.latMicrodeg - before.latMicrodeg)).toInt(),
+                lonMicrodeg = (before.lonMicrodeg + t * (after.lonMicrodeg - before.lonMicrodeg)).toInt(),
+                accuracyM = before.accuracyM,
+                speedMps = before.speedMps + t * (after.speedMps - before.speedMps),
+                bearingDeg = before.bearingDeg,
+            )
+        }
+    }
+
+    /** Merge local and server markers into the combined list. */
+    private fun updateMapMarkers() {
+        mapMarkers = serverMarkers + localMarkers
+    }
+
+    /**
+     * Check if the device is approaching a known pothole.
+     * Triggers a voice warning + blink if ETA <= 5 seconds.
+     */
+    private fun checkPotholeProximity(reading: LocationReading) {
+        val speed = reading.speedMps
+        if (speed < 1f) return  // Not moving, no point warning
+        val now = System.currentTimeMillis()
+        if (now - lastProximityAlertMs < 5_000) return  // Cooldown
+
+        val lat1 = reading.latMicrodeg / 1_000_000.0
+        val lon1 = reading.lonMicrodeg / 1_000_000.0
+
+        for (marker in serverMarkers) {
+            val key = marker.latMicrodeg.toLong() * 1_000_000L + marker.lonMicrodeg
+            if (key in warnedPotholes) continue
+
+            val lat2 = marker.latMicrodeg / 1_000_000.0
+            val lon2 = marker.lonMicrodeg / 1_000_000.0
+            val distM = haversineDistance(lat1, lon1, lat2, lon2)
+            val etaSeconds = distM / speed
+
+            if (etaSeconds <= 5.0 && distM < 500) {
+                warnedPotholes.add(key)
+                lastProximityAlertMs = now
+                triggerHitFlash("NID DE POULE !")
+                if (!voiceMuted) {
+                    voiceFeedback.speakProximityWarning()
+                }
+                return  // One alert at a time
+            }
+        }
+    }
+
+    /** Add a map marker and update the observable list. */
+    private fun addMapMarker(location: LocationReading, type: MapMarkerType) {
+        val marker = MapMarkerData(
+            latMicrodeg = location.latMicrodeg,
+            lonMicrodeg = location.lonMicrodeg,
+            type = type,
+            timestampMs = System.currentTimeMillis(),
+        )
+        localMarkers = localMarkers + marker
+        updateMapMarkers()
+    }
+
+    // --- Voice training ---
+
+    fun startVoiceTraining(keywords: List<String>, label: String) {
+        voiceTrainingKeywords = keywords
+        voiceTrainingLabel = label
+        showVoiceTraining = true
+        voiceCommandListener.trainingActive = true
+    }
+
+    fun onVoiceTrainingDismiss() {
+        showVoiceTraining = false
+        voiceCommandListener.trainingActive = false
+    }
+
+    fun onVoiceTrainingComplete() {
+        showVoiceTraining = false
+        voiceCommandListener.trainingActive = false
+        // Reload profiles so the listener uses the new templates
+        voiceCommandListener.reloadProfiles()
+    }
+
+    // --- Voice-triggered reports with 2-second cancel window ---
+
+    private var pendingVoiceSend: Runnable? = null
+
+    /** Voice-triggered Almost — delayed 2s to allow "non" cancellation. */
+    private fun onVoiceAlmost() {
+        onReportAlmost(fromVoice = true)
+    }
+
+    /** Voice-triggered Hit — delayed 2s to allow "non" cancellation. */
+    private fun onVoiceHit() {
+        onReportHit(fromVoice = true)
+    }
+
+    /** Cancel the pending voice-triggered report (user said "non"). */
+    fun cancelPendingVoiceReport() {
+        val pending = pendingVoiceSend ?: return
+        mainHandler.removeCallbacks(pending)
+        pendingVoiceSend = null
+        triggerHitFlash("Annulé !")
+    }
+
+    /** "Non" button pressed manually — cancel the last voice-triggered report. */
+    fun onReportCancel() {
+        cancelPendingVoiceReport()
+    }
+
+    private fun sendReport(event: HitEvent, location: LocationReading, flashText: String = "HIT!", fromVoice: Boolean = false) {
         triggerHitFlash(flashText)
         if (!voiceMuted) {
             voiceFeedback.speakHit(event.severity)
@@ -385,13 +546,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val bearingBefore = computeBearingBefore()
         val bearingAfter = location.bearingDeg
         val report = HitReportData.create(event, location, bearingBefore, bearingAfter)
-        hitReporter.report(report)
+
+        if (fromVoice) {
+            // Voice-triggered: delay 2s to allow "non" cancellation
+            val sendRunnable = Runnable {
+                pendingVoiceSend = null
+                hitReporter.report(report)
+            }
+            // Cancel any previous pending send
+            pendingVoiceSend?.let { mainHandler.removeCallbacks(it) }
+            pendingVoiceSend = sendRunnable
+            mainHandler.postDelayed(sendRunnable, 2000)
+        } else {
+            // Manual button press: send immediately
+            hitReporter.report(report)
+        }
     }
 
     // --- Data usage accessors (for UI) ---
-    val kbLastMinute: Float get() = dataUsageTracker.kbLastMinute()
-    val mbLastHour: Float get() = dataUsageTracker.mbLastHour()
-    val mbThisMonth: Float get() = dataUsageTracker.mbThisMonth()
+    val mbUploadThisWeek: Float get() = dataUsageTracker.mbUploadThisWeek()
+    val mbDownloadThisWeek: Float get() = dataUsageTracker.mbDownloadThisWeek()
+    val mbUploadThisMonth: Float get() = dataUsageTracker.mbUploadThisMonth()
+    val mbDownloadThisMonth: Float get() = dataUsageTracker.mbDownloadThisMonth()
 
     // --- Private ---
 
@@ -401,19 +577,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         mainHandler.postDelayed({ hitFlashActive = false }, 600)
     }
 
-    private fun onHitDetected(event: HitEvent) {
-        val location = lastLocation ?: return  // No GPS -> can't report
-        sendReport(event, location)
-    }
-
-    /**
-     * Compute the bearing from ~20m before the hit to the hit position.
-     * Uses the location history to find the position approximately 20m back.
-     */
     private fun computeBearingBefore(): Float {
         val current = lastLocation ?: return 0f
         synchronized(locationHistory) {
-            // Walk backwards through location history to find a point ~20m back
             for (i in locationHistory.size - 2 downTo 0) {
                 val prev = locationHistory[i]
                 val distM = haversineDistance(
@@ -428,11 +594,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
-        return current.bearingDeg  // Fallback to current GPS bearing
+        return current.bearingDeg
     }
 
     companion object {
-        /** Haversine distance in meters between two lat/lon points. */
         fun haversineDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
             val R = 6_371_000.0
             val dLat = Math.toRadians(lat2 - lat1)
@@ -444,7 +609,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return R * c
         }
 
-        /** Bearing in degrees from point 1 to point 2. */
         fun bearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
             val dLon = Math.toRadians(lon2 - lon1)
             val y = Math.sin(dLon) * Math.cos(Math.toRadians(lat2))

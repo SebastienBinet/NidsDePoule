@@ -1,76 +1,75 @@
 package fr.nidsdepoule.app.reporting
 
 /**
- * Tracks data sent to the server over sliding time windows.
- *
- * Provides:
- * - KB sent in the last minute
- * - MB sent in the last hour
- * - MB sent in the current month
+ * Tracks data uploaded and downloaded with weekly and monthly totals.
  *
  * Pure Kotlin — no Android dependencies. Testable on JVM.
- * The month counter must be persisted externally (SharedPreferences in the app).
+ * The week/month counters must be persisted externally (SharedPreferences).
  */
 class DataUsageTracker(
-    /** Provider for current time in milliseconds. Inject for testing. */
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
-    // Ring buffer of (timestampMs, bytes) for sliding windows
-    private val entries = mutableListOf<Pair<Long, Int>>()
+    // Weekly counters
+    var weekUploadBytes: Long = 0L
+        private set
+    var weekDownloadBytes: Long = 0L
+        private set
+    var weekStartMs: Long = 0L
 
-    // Persistent month counter (caller is responsible for loading/saving)
-    var monthBytes: Long = 0L
+    // Monthly counters
+    var monthUploadBytes: Long = 0L
+        private set
+    var monthDownloadBytes: Long = 0L
         private set
     var monthStartMs: Long = 0L
 
-    /**
-     * Record that [bytes] were sent at the current time.
-     */
-    fun record(bytes: Int) {
-        val now = nowMs()
-        entries.add(now to bytes)
-        monthBytes += bytes
-
-        // Prune entries older than 1 hour (we don't need them)
-        val oneHourAgo = now - 3_600_000
-        entries.removeAll { it.first < oneHourAgo }
+    /** Record bytes uploaded and downloaded. */
+    fun record(bytesSent: Int, bytesReceived: Int = 0) {
+        weekUploadBytes += bytesSent
+        weekDownloadBytes += bytesReceived
+        monthUploadBytes += bytesSent
+        monthDownloadBytes += bytesReceived
     }
 
-    /** Bytes sent in the last 60 seconds. */
-    fun bytesLastMinute(): Long {
-        val cutoff = nowMs() - 60_000
-        return entries.filter { it.first >= cutoff }.sumOf { it.second.toLong() }
+    // --- Display accessors ---
+
+    fun mbUploadThisWeek(): Float = weekUploadBytes / (1024f * 1024f)
+    fun mbDownloadThisWeek(): Float = weekDownloadBytes / (1024f * 1024f)
+    fun mbUploadThisMonth(): Float = monthUploadBytes / (1024f * 1024f)
+    fun mbDownloadThisMonth(): Float = monthDownloadBytes / (1024f * 1024f)
+
+    // --- Legacy accessors (backward compat) ---
+
+    val monthBytes: Long get() = monthUploadBytes
+
+    fun resetWeek() {
+        weekUploadBytes = 0L
+        weekDownloadBytes = 0L
+        weekStartMs = nowMs()
     }
 
-    /** Bytes sent in the last 60 minutes. */
-    fun bytesLastHour(): Long {
-        val cutoff = nowMs() - 3_600_000
-        return entries.filter { it.first >= cutoff }.sumOf { it.second.toLong() }
-    }
-
-    /** KB sent in the last minute (for UI display). */
-    fun kbLastMinute(): Float = bytesLastMinute() / 1024f
-
-    /** MB sent in the last hour (for UI display). */
-    fun mbLastHour(): Float = bytesLastHour() / (1024f * 1024f)
-
-    /** MB sent this month (for UI display). */
-    fun mbThisMonth(): Float = monthBytes / (1024f * 1024f)
-
-    /**
-     * Reset the month counter. Call on the 1st of each month
-     * or when the tracked month changes.
-     */
     fun resetMonth() {
-        monthBytes = 0L
+        monthUploadBytes = 0L
+        monthDownloadBytes = 0L
         monthStartMs = nowMs()
     }
 
-    /**
-     * Restore persisted month state. Call on app startup.
-     */
+    /** Restore full state on app startup. */
+    fun restore(
+        weekUp: Long, weekDown: Long, weekStart: Long,
+        monthUp: Long, monthDown: Long, monthStart: Long,
+    ) {
+        weekUploadBytes = weekUp
+        weekDownloadBytes = weekDown
+        weekStartMs = weekStart
+        monthUploadBytes = monthUp
+        monthDownloadBytes = monthDown
+        monthStartMs = monthStart
+    }
+
+    /** Legacy restore (old month-only prefs). */
     fun restoreMonth(bytes: Long, startMs: Long) {
-        monthBytes = bytes
+        monthUploadBytes = bytes
         monthStartMs = startMs
     }
 }
