@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
                         mbDownloadThisMonth = viewModel.mbDownloadThisMonth,
                         appVersion = viewModel.appVersionName,
                         buildTime = BuildConfig.BUILD_TIME,
+                        versionLabel = BuildConfig.VERSION_LABEL,
                         devModeEnabled = viewModel.devModeEnabled,
                         onAlmost = { viewModel.onReportAlmost() },
                         onHit = { viewModel.onReportHit() },
@@ -86,6 +87,7 @@ class MainActivity : ComponentActivity() {
                         // Map
                         locationHistory = viewModel.locationHistorySnapshot,
                         mapMarkers = viewModel.mapMarkers,
+                        currentSpeedMps = viewModel.currentSpeedMps,
                         // Voice training
                         showVoiceTraining = viewModel.showVoiceTraining,
                         voiceTrainingKeywords = viewModel.voiceTrainingKeywords,

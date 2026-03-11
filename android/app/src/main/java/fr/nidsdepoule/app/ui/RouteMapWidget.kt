@@ -27,11 +27,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.sensor.LocationReading
 import kotlin.math.cos
+import kotlin.math.max
 
 /**
  * Type of map marker event.
  */
-enum class MapMarkerType { HIT, ALMOST }
+enum class MapMarkerType { HIT, ALMOST, SERVER }
 
 /**
  * A map marker representing a Hit or Almost event.
@@ -43,19 +44,24 @@ data class MapMarkerData(
     val timestampMs: Long,
 )
 
+/** How many seconds ahead of travel the map should cover. */
+const val MAP_LOOKAHEAD_SECONDS = 60f
+
 /**
  * Lightweight route widget drawn with Compose Canvas + async OSM tiles.
  *
  * Features:
  * - Mercator projection for correct tile alignment
- * - Minimum 100m radius around current position
- * - Touch to expand to 1km radius, animated 1s transition back
+ * - Radius = current speed * MAP_LOOKAHEAD_SECONDS (min 100 m)
+ * - 1:1 aspect ratio so the map is never distorted
+ * - Touch to expand to 1 km radius, animated 1 s transition back
  * - Tiles fetched asynchronously by [OsmTileLoader]
  */
 @Composable
 fun RouteMapWidget(
     locationHistory: List<LocationReading>,
     markers: List<MapMarkerData>,
+    currentSpeedMps: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(8.dp)
@@ -63,10 +69,13 @@ fun RouteMapWidget(
     // Observe tile loader revision so we recompose when new tiles arrive
     val tileRevision by OsmTileLoader.revision
 
-    // Touch state: expand to 1km when touched
+    // Radius based on speed: speed * 60s, minimum 100 m
+    val speedRadiusM = max(currentSpeedMps * MAP_LOOKAHEAD_SECONDS, 100f)
+
+    // Touch state: expand to 1 km when touched
     var isTouched by remember { mutableStateOf(false) }
     val minRadiusM by animateFloatAsState(
-        targetValue = if (isTouched) 1000f else 100f,
+        targetValue = if (isTouched) 1000f else speedRadiusM,
         animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
         label = "minRadius",
     )
@@ -154,7 +163,7 @@ fun RouteMapWidget(
         return (1.0 - Math.log(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) / 2.0 * n * 256.0
     }
 
-    // Route bounding box in world pixels + 20% padding
+    // Route bounding box in world pixels + 15% padding
     val routeWorldMinX = lonToWorldX(minLon)
     val routeWorldMaxX = lonToWorldX(maxLon)
     val routeWorldMinY = latToWorldY(maxLat)
@@ -163,16 +172,15 @@ fun RouteMapWidget(
     val routeWorldH = maxOf(routeWorldMaxY - routeWorldMinY, 10.0)
     val padX = routeWorldW * 0.15
     val padY = routeWorldH * 0.15
-    val vpWorldMinX = routeWorldMinX - padX
-    val vpWorldMaxX = routeWorldMaxX + padX
-    val vpWorldMinY = routeWorldMinY - padY
-    val vpWorldMaxY = routeWorldMaxY + padY
-    val vpWorldW = vpWorldMaxX - vpWorldMinX
-    val vpWorldH = vpWorldMaxY - vpWorldMinY
+    val rawW = routeWorldW + 2 * padX
+    val rawH = routeWorldH + 2 * padY
+    val centerWX = (routeWorldMinX + routeWorldMaxX) / 2.0
+    val centerWY = (routeWorldMinY + routeWorldMaxY) / 2.0
 
     val routeColor = Color(0xFF2196F3)
     val hitColor = Color(0xFFD32F2F)
     val almostColor = Color(0xFFFF8F00)
+    val serverColor = Color(0xFF7B1FA2)
     val currentPosColor = Color(0xFF4CAF50)
     val bgColor = Color(0xFF1B1B2F)
     val now = System.currentTimeMillis()
@@ -199,6 +207,25 @@ fun RouteMapWidget(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
+
+            // Enforce 1:1 aspect ratio: equal world-pixels per screen-pixel.
+            // Scale the viewport so the data bounding box fits, then expand
+            // the axis that has room to spare to match the screen ratio.
+            val screenRatio = w / h  // > 1 if landscape
+            val dataRatio = rawW / rawH
+            val vpWorldW: Double
+            val vpWorldH: Double
+            if (dataRatio > screenRatio) {
+                // Data is wider than screen: match width, expand height
+                vpWorldW = rawW
+                vpWorldH = rawW / screenRatio
+            } else {
+                // Data is taller than screen: match height, expand width
+                vpWorldH = rawH
+                vpWorldW = rawH * screenRatio
+            }
+            val vpWorldMinX = centerWX - vpWorldW / 2.0
+            val vpWorldMinY = centerWY - vpWorldH / 2.0
 
             fun worldToScreen(worldX: Double, worldY: Double): Offset {
                 val sx = ((worldX - vpWorldMinX) / vpWorldW * w).toFloat()
@@ -269,6 +296,7 @@ fun RouteMapWidget(
                 val color = when (m.type) {
                     MapMarkerType.HIT -> hitColor.copy(alpha = alpha)
                     MapMarkerType.ALMOST -> almostColor.copy(alpha = alpha)
+                    MapMarkerType.SERVER -> serverColor.copy(alpha = alpha)
                 }
                 drawCircle(color = color, radius = 14f, center = pos)
                 drawCircle(

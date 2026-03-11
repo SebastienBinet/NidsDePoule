@@ -92,6 +92,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var lastLocation: LocationReading? = null
 
     // --- Observable UI state ---
+    var currentSpeedMps by mutableStateOf(0f)
+        private set
     var hasGpsFix by mutableStateOf(false)
         private set
     var isConnected by mutableStateOf(false)
@@ -113,7 +115,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var voiceMuted by mutableStateOf(false)
         private set
 
+    // Counter for throttling graph updates (~5 Hz at 50 Hz sensor rate)
+    private var accelSampleCounter = 0
+
+    // --- Proximity alert state ---
+    /** Set of already-warned pothole positions (lat_lon key) to avoid repeating. */
+    private val warnedPotholes = mutableSetOf<Long>()
+    /** Cooldown: minimum time between two proximity alerts (ms). */
+    private var lastProximityAlertMs = 0L
+
     // --- Map state ---
+    private var localMarkers by mutableStateOf<List<MapMarkerData>>(emptyList())
+    private var serverMarkers by mutableStateOf<List<MapMarkerData>>(emptyList())
     var mapMarkers by mutableStateOf<List<MapMarkerData>>(emptyList())
         private set
     var locationHistorySnapshot by mutableStateOf<List<LocationReading>>(emptyList())
@@ -176,7 +189,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 accelRecorder.addReading(timestamp, magnitudeMg)
 
                 // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
-                if (accelBuffer.size % 10 == 0) {
+                accelSampleCounter++
+                if (accelSampleCounter >= 10) {
+                    accelSampleCounter = 0
                     accelSamples = accelBuffer.snapshot(step = 4)
                 }
             })
@@ -190,6 +205,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Start heartbeat timer (sends current location to server every 10s)
         if (!DebugFlags.DISABLE_NETWORK) {
             hitReporter.startHeartbeat()
+
+            // Fetch server-known potholes periodically
+            hitReporter.onPotholesFetched = { markers ->
+                serverMarkers = markers
+                updateMapMarkers()
+            }
+            hitReporter.startPotholesFetch()
         }
 
         // Wire voice command listener
@@ -204,7 +226,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val locationCb = LocationCallback { reading ->
         hasGpsFix = true
         lastLocation = reading
+        currentSpeedMps = reading.speedMps
         hitReporter.lastKnownLocation = reading
+
+        // Check proximity to known potholes
+        checkPotholeProximity(reading)
 
         synchronized(locationHistory) {
             locationHistory.addLast(reading)
@@ -226,7 +252,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isRunning = false
         if (!DebugFlags.DISABLE_ACCELEROMETER) accelerometer.stop()
         if (!DebugFlags.DISABLE_LOCATION) activeLocationSource.stop()
-        if (!DebugFlags.DISABLE_NETWORK) hitReporter.stopHeartbeat()
+        if (!DebugFlags.DISABLE_NETWORK) {
+            hitReporter.stopHeartbeat()
+            hitReporter.stopPotholesFetch()
+        }
         if (!DebugFlags.DISABLE_TTS) voiceFeedback.shutdown()
         if (!DebugFlags.DISABLE_VOICE) voiceCommandListener.stop()
 
@@ -410,6 +439,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Merge local and server markers into the combined list. */
+    private fun updateMapMarkers() {
+        mapMarkers = serverMarkers + localMarkers
+    }
+
+    /**
+     * Check if the device is approaching a known pothole.
+     * Triggers a voice warning + blink if ETA <= 5 seconds.
+     */
+    private fun checkPotholeProximity(reading: LocationReading) {
+        val speed = reading.speedMps
+        if (speed < 1f) return  // Not moving, no point warning
+        val now = System.currentTimeMillis()
+        if (now - lastProximityAlertMs < 5_000) return  // Cooldown
+
+        val lat1 = reading.latMicrodeg / 1_000_000.0
+        val lon1 = reading.lonMicrodeg / 1_000_000.0
+
+        for (marker in serverMarkers) {
+            val key = marker.latMicrodeg.toLong() * 1_000_000L + marker.lonMicrodeg
+            if (key in warnedPotholes) continue
+
+            val lat2 = marker.latMicrodeg / 1_000_000.0
+            val lon2 = marker.lonMicrodeg / 1_000_000.0
+            val distM = haversineDistance(lat1, lon1, lat2, lon2)
+            val etaSeconds = distM / speed
+
+            if (etaSeconds <= 5.0 && distM < 500) {
+                warnedPotholes.add(key)
+                lastProximityAlertMs = now
+                triggerHitFlash("NID DE POULE !")
+                if (!voiceMuted) {
+                    voiceFeedback.speakProximityWarning()
+                }
+                return  // One alert at a time
+            }
+        }
+    }
+
     /** Add a map marker and update the observable list. */
     private fun addMapMarker(location: LocationReading, type: MapMarkerType) {
         val marker = MapMarkerData(
@@ -418,7 +486,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             type = type,
             timestampMs = System.currentTimeMillis(),
         )
-        mapMarkers = mapMarkers + marker
+        localMarkers = localMarkers + marker
+        updateMapMarkers()
     }
 
     // --- Voice training ---

@@ -53,6 +53,7 @@ fun MainScreen(
     mbDownloadThisMonth: Float,
     appVersion: String,
     buildTime: String,
+    versionLabel: String,
     devModeEnabled: Boolean,
     onDevModeTap: () -> Unit,
     onAlmost: () -> Unit = {},
@@ -69,6 +70,7 @@ fun MainScreen(
     // Map
     locationHistory: List<LocationReading> = emptyList(),
     mapMarkers: List<MapMarkerData> = emptyList(),
+    currentSpeedMps: Float = 0f,
     // Voice training
     showVoiceTraining: Boolean = false,
     voiceTrainingKeywords: List<String> = emptyList(),
@@ -115,7 +117,7 @@ fun MainScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "v18 Firestore",
+                text = versionLabel,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -187,6 +189,7 @@ fun MainScreen(
                 RouteMapWidget(
                     locationHistory = locationHistory,
                     markers = mapMarkers,
+                    currentSpeedMps = currentSpeedMps,
                 )
             }
         }
@@ -281,7 +284,7 @@ fun MainScreen(
         ) {
             TextButton(onClick = onDevModeTap) {
                 Text(
-                    text = "v$appVersion - $buildTime",
+                    text = "v$appVersion - $versionLabel - $buildTime",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                 )

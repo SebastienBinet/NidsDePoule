@@ -24,6 +24,9 @@ android {
 
         val buildTime = SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())
         buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
+
+        val versionLabel = rootProject.file("../VERSION_LABEL").readText().trim()
+        buildConfigField("String", "VERSION_LABEL", "\"$versionLabel\"")
     }
 
     buildTypes {

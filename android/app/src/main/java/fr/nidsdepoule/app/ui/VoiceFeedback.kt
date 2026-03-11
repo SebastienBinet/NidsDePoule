@@ -13,10 +13,6 @@ import java.util.Locale
  */
 class VoiceFeedback(private val context: Context) {
 
-    companion object {
-        private const val TAG = "VoiceFeedback"
-    }
-
     private var tts: TextToSpeech? = null
     @Volatile private var ready = false
     private var initStarted = false
@@ -51,6 +47,26 @@ class VoiceFeedback(private val context: Context) {
         if (!ready) return
         val phrase = if (severity >= 3) "AYOYE !" else "Attention !"
         tts?.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "hit_${System.currentTimeMillis()}")
+    }
+
+    /** Speak a random pothole proximity warning. */
+    fun speakProximityWarning() {
+        if (!ready) return
+        val phrase = PROXIMITY_PHRASES.random()
+        tts?.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "warn_${System.currentTimeMillis()}")
+    }
+
+    companion object {
+        private const val TAG = "VoiceFeedback"
+
+        /** 5 funny French phrases for approaching a known pothole. */
+        val PROXIMITY_PHRASES = listOf(
+            "Wô, attention devant !",
+            "Ça va brasser !",
+            "Accrochez-vous !",
+            "Oups, nid de poule !",
+            "Aïe aïe aïe !",
+        )
     }
 
     /** Speak an arbitrary phrase in French. */
