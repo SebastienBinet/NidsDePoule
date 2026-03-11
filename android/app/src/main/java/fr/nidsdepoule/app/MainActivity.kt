@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity() {
                         // Map
                         locationHistory = viewModel.locationHistorySnapshot,
                         mapMarkers = viewModel.mapMarkers,
+                        currentSpeedMps = viewModel.currentSpeedMps,
                         // Voice training
                         showVoiceTraining = viewModel.showVoiceTraining,
                         voiceTrainingKeywords = viewModel.voiceTrainingKeywords,

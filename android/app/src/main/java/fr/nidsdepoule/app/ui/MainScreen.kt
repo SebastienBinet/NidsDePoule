@@ -70,6 +70,7 @@ fun MainScreen(
     // Map
     locationHistory: List<LocationReading> = emptyList(),
     mapMarkers: List<MapMarkerData> = emptyList(),
+    currentSpeedMps: Float = 0f,
     // Voice training
     showVoiceTraining: Boolean = false,
     voiceTrainingKeywords: List<String> = emptyList(),
@@ -188,6 +189,7 @@ fun MainScreen(
                 RouteMapWidget(
                     locationHistory = locationHistory,
                     markers = mapMarkers,
+                    currentSpeedMps = currentSpeedMps,
                 )
             }
         }
