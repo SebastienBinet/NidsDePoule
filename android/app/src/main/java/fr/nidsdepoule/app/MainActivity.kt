@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
                         mbDownloadThisMonth = viewModel.mbDownloadThisMonth,
                         appVersion = viewModel.appVersionName,
                         buildTime = BuildConfig.BUILD_TIME,
+                        versionLabel = BuildConfig.VERSION_LABEL,
                         devModeEnabled = viewModel.devModeEnabled,
                         onAlmost = { viewModel.onReportAlmost() },
                         onHit = { viewModel.onReportHit() },

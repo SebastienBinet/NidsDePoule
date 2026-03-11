@@ -53,6 +53,7 @@ fun MainScreen(
     mbDownloadThisMonth: Float,
     appVersion: String,
     buildTime: String,
+    versionLabel: String,
     devModeEnabled: Boolean,
     onDevModeTap: () -> Unit,
     onAlmost: () -> Unit = {},
@@ -281,7 +282,7 @@ fun MainScreen(
         ) {
             TextButton(onClick = onDevModeTap) {
                 Text(
-                    text = "v$appVersion - $buildTime",
+                    text = "v$appVersion - $versionLabel - $buildTime",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                 )
