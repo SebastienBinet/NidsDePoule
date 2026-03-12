@@ -31,15 +31,22 @@ class AccelerationBuffer(private val maxSize: Int = 1500) {
 
     /**
      * Return a snapshot of samples, downsampled by [step] for rendering.
+     *
+     * Samples are picked from the END backwards so that the newest data
+     * always maps to the same screen positions — this avoids visual
+     * "alternating waveform" artefacts when the buffer size changes by
+     * less than [step] between frames.
      */
     fun snapshot(step: Int = 4): List<Sample> {
+        val n = samples.size
+        if (n == 0) return emptyList()
+        // Start index aligned to the last element: walk backwards by step.
+        val firstIdx = (n - 1) % step
         val result = mutableListOf<Sample>()
-        var i = 0
-        for (s in samples) {
-            if (i % step == 0) {
-                result.add(s)
-            }
-            i++
+        var i = firstIdx
+        while (i < n) {
+            result.add(samples[i])
+            i += step
         }
         return result
     }
