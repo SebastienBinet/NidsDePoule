@@ -88,16 +88,26 @@ def create_mbtiles(path: str) -> sqlite3.Connection:
     return conn
 
 
+MAX_RETRIES = 4
+RETRY_BACKOFF = [2, 4, 8, 16]
+
+
 def download_tile(z: int, x: int, y: int) -> bytes | None:
-    """Download a single tile from OSM."""
+    """Download a single tile from OSM with retry on transient errors."""
     url = TILE_URL.format(z=z, x=x, y=y)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.read()
-    except Exception as e:
-        print(f"  FAILED {url}: {e}")
-        return None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.read()
+        except Exception as e:
+            if attempt < MAX_RETRIES:
+                wait = RETRY_BACKOFF[attempt]
+                print(f"  RETRY {attempt + 1}/{MAX_RETRIES} {url}: {e} (waiting {wait}s)")
+                time.sleep(wait)
+            else:
+                print(f"  FAILED {url}: {e}")
+                return None
 
 
 def main():
