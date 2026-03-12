@@ -1,5 +1,6 @@
 package fr.nidsdepoule.app.ui
 
+import android.content.Context
 import android.graphics.BitmapFactory
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.ImageBitmap
@@ -12,13 +13,10 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.*
 
 /**
- * Async OSM tile loader with memory-only cache.
+ * Async OSM tile loader with offline-first lookup.
  *
- * Fetches 256x256 PNG tiles from OpenStreetMap and caches them in an LruCache.
- * All I/O happens on Dispatchers.IO — [getTile] returns immediately (null if not cached).
+ * Lookup order: memory LruCache → offline MBTiles bundle → network fetch.
  * Compose recomposes when tiles arrive via the [revision] state counter.
- *
- * No SQLite, no disk cache — avoids the ANR that osmdroid caused.
  */
 object OsmTileLoader {
 
@@ -39,6 +37,8 @@ object OsmTileLoader {
     /** Incremented when any tile finishes loading. Compose observes this to recompose. */
     val revision = mutableIntStateOf(0)
 
+    private var offlineStore: OfflineTileStore? = null
+
     private val client by lazy {
         OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
@@ -47,14 +47,39 @@ object OsmTileLoader {
     }
 
     /**
+     * Initialize the offline tile store. Call from MainActivity.onCreate().
+     */
+    fun init(context: Context) {
+        val store = OfflineTileStore(context)
+        offlineStore = store
+        store.init(scope)
+    }
+
+    /**
      * Get a cached tile bitmap, or null if not yet loaded.
-     * Triggers an async fetch if the tile isn't in cache or inflight.
+     *
+     * Lookup order: memory cache → offline MBTiles → async network fetch.
      */
     fun getTile(z: Int, x: Int, y: Int): ImageBitmap? {
         val key = TileKey(z, x, y)
         val cached = cache.get(key)
         if (cached != null) return cached
 
+        // Try offline store (synchronous, fast SQLite indexed read)
+        offlineStore?.let { store ->
+            if (store.isReady) {
+                store.getTileBytes(z, x, y)?.let { bytes ->
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bitmap != null) {
+                        val img = bitmap.asImageBitmap()
+                        cache.put(key, img)
+                        return img
+                    }
+                }
+            }
+        }
+
+        // Fall back to network fetch
         synchronized(inflight) {
             if (key in inflight) return null
             inflight.add(key)
@@ -79,7 +104,7 @@ object OsmTileLoader {
                     onTileBytes?.invoke(bytes.size)
                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     if (bitmap != null) {
-                        cache.put(key, bitmap.asImageBitmap())
+                        cache.put(TileKey(key.z, key.x, key.y), bitmap.asImageBitmap())
                         // Notify Compose to recompose
                         revision.intValue++
                     }
