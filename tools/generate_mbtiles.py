@@ -51,28 +51,28 @@ def osm_y_to_tms_y(osm_y: int, z: int) -> int:
     return (1 << z) - 1 - osm_y
 
 
-def create_mbtiles(path: str) -> sqlite3.Connection:
-    """Create a new MBTiles database with the required schema."""
-    if os.path.exists(path):
-        os.remove(path)
+def open_mbtiles(path: str) -> sqlite3.Connection:
+    """Open an existing MBTiles database or create a new one."""
+    exists = os.path.exists(path)
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute(
-        "CREATE TABLE metadata (name TEXT PRIMARY KEY, value TEXT);"
-    )
-    conn.execute(
-        "CREATE TABLE tiles ("
-        "  zoom_level INTEGER,"
-        "  tile_column INTEGER,"
-        "  tile_row INTEGER,"
-        "  tile_data BLOB"
-        ");"
-    )
-    conn.execute(
-        "CREATE UNIQUE INDEX tile_index "
-        "ON tiles (zoom_level, tile_column, tile_row);"
-    )
-    # Metadata
+    if not exists:
+        conn.execute(
+            "CREATE TABLE metadata (name TEXT PRIMARY KEY, value TEXT);"
+        )
+        conn.execute(
+            "CREATE TABLE tiles ("
+            "  zoom_level INTEGER,"
+            "  tile_column INTEGER,"
+            "  tile_row INTEGER,"
+            "  tile_data BLOB"
+            ");"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX tile_index "
+            "ON tiles (zoom_level, tile_column, tile_row);"
+        )
+    # Upsert metadata
     metadata = [
         ("name", "Montreal OSM Tiles"),
         ("format", "png"),
@@ -83,21 +83,33 @@ def create_mbtiles(path: str) -> sqlite3.Connection:
         ("type", "baselayer"),
         ("description", "OSM tiles for Montreal island"),
     ]
-    conn.executemany("INSERT INTO metadata VALUES (?, ?);", metadata)
+    conn.executemany(
+        "INSERT OR REPLACE INTO metadata VALUES (?, ?);", metadata
+    )
     conn.commit()
     return conn
 
 
-def download_tile(z: int, x: int, y: int):
-    """Download a single tile from OSM."""
+MAX_RETRIES = 4
+RETRY_BACKOFF = [2, 4, 8, 16]
+
+
+def download_tile(z: int, x: int, y: int) -> bytes | None:
+    """Download a single tile from OSM with retry on transient errors."""
     url = TILE_URL.format(z=z, x=x, y=y)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.read()
-    except Exception as e:
-        print(f"  FAILED {url}: {e}")
-        return None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.read()
+        except Exception as e:
+            if attempt < MAX_RETRIES:
+                wait = RETRY_BACKOFF[attempt]
+                print(f"  RETRY {attempt + 1}/{MAX_RETRIES} {url}: {e} (waiting {wait}s)")
+                time.sleep(wait)
+            else:
+                print(f"  FAILED {url}: {e}")
+                return None
 
 
 def main():
@@ -124,8 +136,20 @@ def main():
     print(f"Output: {output_path}")
     print()
 
-    conn = create_mbtiles(output_path)
+    conn = open_mbtiles(output_path)
+
+    # Load set of already-downloaded tiles so we can resume
+    existing = set(
+        conn.execute(
+            "SELECT zoom_level, tile_column, tile_row FROM tiles"
+        ).fetchall()
+    )
+    if existing:
+        print(f"Resuming: {len(existing)} tiles already in database, skipping them.")
+        print()
+
     downloaded = 0
+    skipped = 0
     failed = 0
     total_bytes = 0
 
@@ -137,9 +161,13 @@ def main():
 
         for x in range(min_x, max_x + 1):
             for y in range(min_y, max_y + 1):
+                tms_y = osm_y_to_tms_y(y, z)
+                if (z, x, tms_y) in existing:
+                    skipped += 1
+                    continue
+
                 data = download_tile(z, x, y)
                 if data:
-                    tms_y = osm_y_to_tms_y(y, z)
                     conn.execute(
                         "INSERT OR REPLACE INTO tiles VALUES (?, ?, ?, ?);",
                         (z, x, tms_y, data),
@@ -149,14 +177,14 @@ def main():
                 else:
                     failed += 1
 
-                done = downloaded + failed
-                if done % 50 == 0 or done == total:
+                done = skipped + downloaded + failed
+                if (downloaded + failed) % 50 == 0 or done == total:
                     pct = done / total * 100
                     mb = total_bytes / (1024 * 1024)
                     print(
                         f"  [{done}/{total}] {pct:.0f}%  "
-                        f"downloaded={downloaded} failed={failed} "
-                        f"size={mb:.1f} MB"
+                        f"skipped={skipped} downloaded={downloaded} failed={failed} "
+                        f"new={mb:.1f} MB"
                     )
                     conn.commit()
 
@@ -167,7 +195,7 @@ def main():
 
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
     print()
-    print(f"Done! {downloaded} tiles, {failed} failures, {size_mb:.1f} MB")
+    print(f"Done! {skipped} skipped, {downloaded} downloaded, {failed} failures, {size_mb:.1f} MB")
     print(f"Output: {output_path}")
 
 
