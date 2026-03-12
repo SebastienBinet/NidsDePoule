@@ -28,6 +28,9 @@ object OsmTileLoader {
     private const val MAX_TILES = 30 // ~7MB max
     private const val MAX_CONCURRENT = 4
 
+    /** Callback to record tile download bytes. Set from MainViewModel. */
+    var onTileBytes: ((bytesReceived: Int) -> Unit)? = null
+
     private val cache = LruCache<TileKey, ImageBitmap>(MAX_TILES)
     private val inflight = mutableSetOf<TileKey>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -73,6 +76,7 @@ object OsmTileLoader {
             if (response.isSuccessful) {
                 val bytes = response.body?.bytes()
                 if (bytes != null) {
+                    onTileBytes?.invoke(bytes.size)
                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     if (bitmap != null) {
                         cache.put(key, bitmap.asImageBitmap())

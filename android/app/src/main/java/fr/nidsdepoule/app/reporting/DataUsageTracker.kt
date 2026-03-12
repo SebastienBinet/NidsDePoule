@@ -1,6 +1,30 @@
 package fr.nidsdepoule.app.reporting
 
 /**
+ * Data transfer categories for per-category tracking.
+ */
+enum class DataCategory {
+    /** Hit reports (app → server) and server responses. */
+    HITS,
+    /** Heartbeat pings (app → server). */
+    HEARTBEAT,
+    /** Pothole positions fetched from server. */
+    POTHOLES,
+    /** OSM map tiles downloaded. */
+    TILES,
+}
+
+/**
+ * Per-category byte counters (session-only, not persisted).
+ */
+data class CategoryBytes(
+    var uploadBytes: Long = 0L,
+    var downloadBytes: Long = 0L,
+) {
+    val totalBytes: Long get() = uploadBytes + downloadBytes
+}
+
+/**
  * Tracks data uploaded and downloaded with weekly and monthly totals.
  *
  * Pure Kotlin — no Android dependencies. Testable on JVM.
@@ -23,13 +47,25 @@ class DataUsageTracker(
         private set
     var monthStartMs: Long = 0L
 
-    /** Record bytes uploaded and downloaded. */
-    fun record(bytesSent: Int, bytesReceived: Int = 0) {
+    // Per-category counters (session-only)
+    private val _categories = mutableMapOf<DataCategory, CategoryBytes>()
+
+    /** Record bytes uploaded and downloaded, optionally with a category. */
+    fun record(bytesSent: Int, bytesReceived: Int = 0, category: DataCategory? = null) {
         weekUploadBytes += bytesSent
         weekDownloadBytes += bytesReceived
         monthUploadBytes += bytesSent
         monthDownloadBytes += bytesReceived
+        if (category != null) {
+            val cat = _categories.getOrPut(category) { CategoryBytes() }
+            cat.uploadBytes += bytesSent
+            cat.downloadBytes += bytesReceived
+        }
     }
+
+    /** Get per-category counters for detail display. */
+    fun categorySnapshot(): Map<DataCategory, CategoryBytes> =
+        _categories.toMap()
 
     // --- Display accessors ---
 

@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
                         mbDownloadThisWeek = viewModel.mbDownloadThisWeek,
                         mbUploadThisMonth = viewModel.mbUploadThisMonth,
                         mbDownloadThisMonth = viewModel.mbDownloadThisMonth,
+                        dataCategorySnapshot = viewModel.dataCategorySnapshot,
                         appVersion = viewModel.appVersionName,
                         buildTime = BuildConfig.BUILD_TIME,
                         versionLabel = BuildConfig.VERSION_LABEL,

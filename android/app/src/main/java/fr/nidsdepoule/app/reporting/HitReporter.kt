@@ -142,7 +142,7 @@ class HitReporter(
         val url = "$serverUrl/api/v1/hits"
         val result = httpClient.postJson(url, jsonStr)
         if (result.success) {
-            dataUsageTracker.record(result.bytesSent, result.bytesReceived)
+            dataUsageTracker.record(result.bytesSent, result.bytesReceived, DataCategory.HEARTBEAT)
             onConnectivityChanged?.invoke(true)
         } else {
             onConnectivityChanged?.invoke(false)
@@ -158,7 +158,7 @@ class HitReporter(
         if (result.success) {
             hitsSent++
             lastSendTimestampMs = System.currentTimeMillis()
-            dataUsageTracker.record(result.bytesSent, result.bytesReceived)
+            dataUsageTracker.record(result.bytesSent, result.bytesReceived, DataCategory.HITS)
             onConnectivityChanged?.invoke(true)
         } else {
             hitsFailed++
@@ -209,7 +209,7 @@ class HitReporter(
         if (result.success) {
             hitsSent += hits.size
             lastSendTimestampMs = System.currentTimeMillis()
-            dataUsageTracker.record(result.bytesSent, result.bytesReceived)
+            dataUsageTracker.record(result.bytesSent, result.bytesReceived, DataCategory.HITS)
             onConnectivityChanged?.invoke(true)
         } else {
             hitsFailed += hits.size
@@ -251,7 +251,7 @@ class HitReporter(
         if (serverUrl.isBlank()) return
         val result = httpClient.get("$serverUrl/api/v1/potholes")
         if (!result.success) return
-        dataUsageTracker.record(0, result.bytesReceived)
+        dataUsageTracker.record(0, result.bytesReceived, DataCategory.POTHOLES)
 
         try {
             val json = JSONObject(result.body)

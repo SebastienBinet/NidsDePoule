@@ -47,6 +47,12 @@ data class MapMarkerData(
 /** How many seconds ahead of travel the map should cover. */
 const val MAP_LOOKAHEAD_SECONDS = 60f
 
+/** Montreal island bounding box (approx). */
+private const val MONTREAL_MIN_LAT = 45.40
+private const val MONTREAL_MAX_LAT = 45.72
+private const val MONTREAL_MIN_LON = -73.98
+private const val MONTREAL_MAX_LON = -73.47
+
 /**
  * Lightweight route widget drawn with Compose Canvas + async OSM tiles.
  *
@@ -72,13 +78,8 @@ fun RouteMapWidget(
     // Radius based on speed: speed * 60s, minimum 100 m
     val speedRadiusM = max(currentSpeedMps * MAP_LOOKAHEAD_SECONDS, 100f)
 
-    // Touch state: expand to 1 km when touched
+    // Touch state: expand to Montreal island when touched
     var isTouched by remember { mutableStateOf(false) }
-    val minRadiusM by animateFloatAsState(
-        targetValue = if (isTouched) 1000f else speedRadiusM,
-        animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
-        label = "minRadius",
-    )
 
     // Flash animation for recent markers
     val infiniteTransition = rememberInfiniteTransition(label = "markerFlash")
@@ -110,30 +111,44 @@ fun RouteMapWidget(
     val curLat = locationHistory.last().latMicrodeg / 1_000_000.0
     val curLon = locationHistory.last().lonMicrodeg / 1_000_000.0
 
-    // Collect all points (route + markers) in degrees
-    val allLats = locationHistory.map { it.latMicrodeg / 1_000_000.0 } +
-            markers.map { it.latMicrodeg / 1_000_000.0 }
-    val allLons = locationHistory.map { it.lonMicrodeg / 1_000_000.0 } +
-            markers.map { it.lonMicrodeg / 1_000_000.0 }
-
-    var minLat = allLats.min()
-    var maxLat = allLats.max()
-    var minLon = allLons.min()
-    var maxLon = allLons.max()
-
-    // Enforce minimum radius around current position
-    // 1 degree latitude ≈ 111,320 meters
-    // 1 degree longitude ≈ 111,320 * cos(lat) meters
+    // Animate between current-position view and Montreal island view
     val metersPerDegLat = 111_320.0
     val metersPerDegLon = 111_320.0 * cos(Math.toRadians(curLat))
-    val minRadiusDegLat = minRadiusM / metersPerDegLat
-    val minRadiusDegLon = if (metersPerDegLon > 0) minRadiusM / metersPerDegLon else minRadiusDegLat
+    val speedRadiusDegLat = speedRadiusM / metersPerDegLat
+    val speedRadiusDegLon = if (metersPerDegLon > 0) speedRadiusM / metersPerDegLon else speedRadiusDegLat
 
-    // Expand bounds to ensure minimum radius around current position
-    minLat = minOf(minLat, curLat - minRadiusDegLat)
-    maxLat = maxOf(maxLat, curLat + minRadiusDegLat)
-    minLon = minOf(minLon, curLon - minRadiusDegLon)
-    maxLon = maxOf(maxLon, curLon + minRadiusDegLon)
+    // Default view: centered on current position with speed-based radius
+    val defaultMinLat = curLat - speedRadiusDegLat
+    val defaultMaxLat = curLat + speedRadiusDegLat
+    val defaultMinLon = curLon - speedRadiusDegLon
+    val defaultMaxLon = curLon + speedRadiusDegLon
+
+    // Animate bounds between default and Montreal island
+    val animMinLat by animateFloatAsState(
+        targetValue = if (isTouched) MONTREAL_MIN_LAT.toFloat() else defaultMinLat.toFloat(),
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "minLat",
+    )
+    val animMaxLat by animateFloatAsState(
+        targetValue = if (isTouched) MONTREAL_MAX_LAT.toFloat() else defaultMaxLat.toFloat(),
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "maxLat",
+    )
+    val animMinLon by animateFloatAsState(
+        targetValue = if (isTouched) MONTREAL_MIN_LON.toFloat() else defaultMinLon.toFloat(),
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "minLon",
+    )
+    val animMaxLon by animateFloatAsState(
+        targetValue = if (isTouched) MONTREAL_MAX_LON.toFloat() else defaultMaxLon.toFloat(),
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "maxLon",
+    )
+
+    val minLat = animMinLat.toDouble()
+    val maxLat = animMaxLat.toDouble()
+    val minLon = animMinLon.toDouble()
+    val maxLon = animMaxLon.toDouble()
 
     // Pick zoom level: find z where the viewport fits within ~5 tiles
     val z = run {
