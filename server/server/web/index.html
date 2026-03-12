@@ -202,6 +202,7 @@ map.addControl(new maplibregl.NavigationControl(), 'top-right');
 const layerState = { clusters: true, hits: true };
 let currentPopup = null;
 let allHitsData = [];
+let activeDevices = [];
 
 // --- Colors ---
 function severityColor(sev) {
@@ -279,6 +280,7 @@ function haversineM(lat1, lon1, lat2, lon2) {
 // --- Load active devices (green dots) ---
 function loadDevices() {
   return fetch('/api/v1/devices/active').then(r => r.json()).then(devices => {
+    activeDevices = devices;
     document.getElementById('device-count').textContent = devices.length;
 
     // Remove old layer/source.
@@ -394,11 +396,6 @@ function loadClusters(fitMap) {
       minzoom: 13,
     });
 
-    if (fitMap && features.length > 0) {
-      const bounds = new maplibregl.LngLatBounds();
-      features.forEach(f => bounds.extend(f.geometry.coordinates));
-      map.fitBounds(bounds, { padding: 60, maxZoom: 16 });
-    }
     return features;
   });
 }
@@ -575,10 +572,25 @@ function toggleDrawer() {
   document.getElementById('btn-table').classList.toggle('active', d.classList.contains('open'));
 }
 
+// Default max speed for map radius: 50 km/h
+const MAP_MAX_SPEED_KMH = 50;
+const MAP_LOOKAHEAD_SECONDS = 60;
+
 function loadAll(fitMap) {
-  loadClusters(!!fitMap);
+  loadClusters();
   loadHits();
-  loadDevices();
+  loadDevices().then(() => {
+    if (!fitMap || activeDevices.length === 0) return;
+    // Center on first active device with 60s-at-max-speed radius
+    const d = activeDevices[0];
+    const radiusM = (MAP_MAX_SPEED_KMH / 3.6) * MAP_LOOKAHEAD_SECONDS;
+    const dLat = radiusM / 111320;
+    const dLon = radiusM / (111320 * Math.cos(d.lat * Math.PI / 180));
+    map.fitBounds(
+      [[d.lon - dLon, d.lat - dLat], [d.lon + dLon, d.lat + dLat]],
+      { padding: 30, maxZoom: 16 }
+    );
+  });
 }
 
 // --- Click handlers ---
