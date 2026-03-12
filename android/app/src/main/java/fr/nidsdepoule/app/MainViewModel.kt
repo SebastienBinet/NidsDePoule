@@ -11,7 +11,10 @@ import androidx.lifecycle.AndroidViewModel
 import fr.nidsdepoule.app.detection.AccelRecorder
 import fr.nidsdepoule.app.detection.HitEvent
 import fr.nidsdepoule.app.detection.ReportSource
+import fr.nidsdepoule.app.reporting.CategoryBytes
+import fr.nidsdepoule.app.reporting.DataCategory
 import fr.nidsdepoule.app.reporting.DataUsageTracker
+import fr.nidsdepoule.app.ui.OsmTileLoader
 import fr.nidsdepoule.app.reporting.HitReportData
 import fr.nidsdepoule.app.reporting.HitReporter
 import fr.nidsdepoule.app.reporting.OkHttpClientAdapter
@@ -165,6 +168,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isConnected = connected
             }
             hitReporter.checkConnectivity()
+        }
+
+        // Wire tile download tracking to data usage tracker
+        OsmTileLoader.onTileBytes = { bytes ->
+            dataUsageTracker.record(0, bytes, DataCategory.TILES)
         }
 
         // Restore data usage counters (week + month, upload + download)
@@ -568,6 +576,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val mbDownloadThisWeek: Float get() = dataUsageTracker.mbDownloadThisWeek()
     val mbUploadThisMonth: Float get() = dataUsageTracker.mbUploadThisMonth()
     val mbDownloadThisMonth: Float get() = dataUsageTracker.mbDownloadThisMonth()
+    val dataCategorySnapshot: Map<DataCategory, CategoryBytes> get() = dataUsageTracker.categorySnapshot()
 
     // --- Private ---
 
