@@ -94,7 +94,7 @@ MAX_RETRIES = 4
 RETRY_BACKOFF = [2, 4, 8, 16]
 
 
-def download_tile(z: int, x: int, y: int) -> bytes | None:
+def download_tile(z: int, x: int, y: int):
     """Download a single tile from OSM with retry on transient errors."""
     url = TILE_URL.format(z=z, x=x, y=y)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
