@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
@@ -63,7 +61,6 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    val devicePositions by viewModel.devicePosStore.positions.collectAsState()
                     MainScreen(
                         accelSamples = viewModel.accelSamples,
                         hasGpsFix = viewModel.hasGpsFix,
@@ -95,7 +92,7 @@ class MainActivity : ComponentActivity() {
                         // Map
                         locationHistory = viewModel.locationHistorySnapshot,
                         mapMarkers = viewModel.mapMarkers,
-                        devicePositions = devicePositions,
+                        devicePosStore = viewModel.devicePosStore,
                         currentSpeedMps = viewModel.currentSpeedMps,
                         // Voice training
                         showVoiceTraining = viewModel.showVoiceTraining,

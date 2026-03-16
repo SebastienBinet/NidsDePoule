@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -30,6 +31,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.sensor.LocationReading
+import fr.nidsdepoule.app.store.DevicePosStore
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.cos
 import kotlin.math.max
 
@@ -71,7 +74,7 @@ private const val MONTREAL_MAX_LON = -73.47
 fun RouteMapWidget(
     locationHistory: List<LocationReading>,
     markers: List<MapMarkerData>,
-    devicePositions: IntArray = IntArray(0),
+    devicePosStore: DevicePosStore? = null,
     currentSpeedMps: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
@@ -198,6 +201,11 @@ fun RouteMapWidget(
     val centerWY = (routeWorldMinY + routeWorldMaxY) / 2.0
 
     val textMeasurer = rememberTextMeasurer()
+
+    // Collect device positions and overlay from store
+    val devicePositions by (devicePosStore?.positions ?: MutableStateFlow(IntArray(0))).collectAsState()
+    val overlayBitmap by (devicePosStore?.overlay ?: MutableStateFlow(null)).collectAsState()
+    val overlayImageBitmap = remember(overlayBitmap) { overlayBitmap?.asImageBitmap() }
 
     val routeColor = Color(0xFF2196F3)
     val hitColor = Color(0xFFD32F2F)
@@ -330,26 +338,51 @@ fun RouteMapWidget(
                 )
             }
 
-            // Draw open-data pothole repairs (grey crosses)
-            val crossAlpha = 0.8f
-            val crossC = crossColor.copy(alpha = crossAlpha)
-            val arm = when {
-                z >= 15 -> 8f
-                z >= 12 -> 5f
-                else -> 3f
-            }
-            val crossStroke = when {
-                z >= 15 -> 2.5f
-                z >= 12 -> 2f
-                else -> 1.5f
-            }
-            for (i in 0 until devicePositions.size / 2) {
-                val lat = devicePositions[i * 2] / 1_000_000.0
-                val lon = devicePositions[i * 2 + 1] / 1_000_000.0
-                val pos = geoToScreen(lat, lon)
-                if (pos.x in -arm..w + arm && pos.y in -arm..h + arm) {
-                    drawLine(crossC, Offset(pos.x - arm, pos.y - arm), Offset(pos.x + arm, pos.y + arm), strokeWidth = crossStroke, cap = StrokeCap.Round)
-                    drawLine(crossC, Offset(pos.x - arm, pos.y + arm), Offset(pos.x + arm, pos.y - arm), strokeWidth = crossStroke, cap = StrokeCap.Round)
+            // Draw open-data pothole repairs
+            if (isTouched) {
+                // Montreal overview: draw pre-rendered low-res overlay
+                val img = overlayImageBitmap
+                if (img != null) {
+                    val topLeft = geoToScreen(DevicePosStore.OVERLAY_MAX_LAT, DevicePosStore.OVERLAY_MIN_LON)
+                    val bottomRight = geoToScreen(DevicePosStore.OVERLAY_MIN_LAT, DevicePosStore.OVERLAY_MAX_LON)
+                    drawImage(
+                        image = img,
+                        srcOffset = IntOffset.Zero,
+                        srcSize = IntSize(img.width, img.height),
+                        dstOffset = IntOffset(topLeft.x.toInt(), topLeft.y.toInt()),
+                        dstSize = IntSize(
+                            (bottomRight.x - topLeft.x).toInt(),
+                            (bottomRight.y - topLeft.y).toInt(),
+                        ),
+                    )
+                }
+            } else {
+                // Normal view: binary-search for crosses in visible lat range only
+                val crossC = crossColor.copy(alpha = 0.8f)
+                val arm = when {
+                    z >= 15 -> 8f
+                    z >= 12 -> 5f
+                    else -> 3f
+                }
+                val crossStrokeW = when {
+                    z >= 15 -> 2.5f
+                    z >= 12 -> 2f
+                    else -> 1.5f
+                }
+                val minLatMicro = (minLat * 1_000_000).toInt()
+                val maxLatMicro = (maxLat * 1_000_000).toInt()
+                val minLonMicro = (minLon * 1_000_000).toInt()
+                val maxLonMicro = (maxLon * 1_000_000).toInt()
+                val (rangeStart, rangeEnd) = devicePosStore?.latRange(minLatMicro, maxLatMicro) ?: Pair(0, 0)
+                var idx = rangeStart
+                while (idx < rangeEnd) {
+                    val lon = devicePositions[idx + 1]
+                    if (lon in minLonMicro..maxLonMicro) {
+                        val pos = geoToScreen(devicePositions[idx] / 1_000_000.0, lon / 1_000_000.0)
+                        drawLine(crossC, Offset(pos.x - arm, pos.y - arm), Offset(pos.x + arm, pos.y + arm), strokeWidth = crossStrokeW, cap = StrokeCap.Round)
+                        drawLine(crossC, Offset(pos.x - arm, pos.y + arm), Offset(pos.x + arm, pos.y - arm), strokeWidth = crossStrokeW, cap = StrokeCap.Round)
+                    }
+                    idx += 2
                 }
             }
 

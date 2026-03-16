@@ -29,6 +29,7 @@ import fr.nidsdepoule.app.R
 import fr.nidsdepoule.app.reporting.CategoryBytes
 import fr.nidsdepoule.app.reporting.DataCategory
 import fr.nidsdepoule.app.sensor.LocationReading
+import fr.nidsdepoule.app.store.DevicePosStore
 import fr.nidsdepoule.app.sensor.audio.MfccExtractor
 import fr.nidsdepoule.app.sensor.audio.VoiceProfileStore
 
@@ -75,7 +76,7 @@ fun MainScreen(
     // Map
     locationHistory: List<LocationReading> = emptyList(),
     mapMarkers: List<MapMarkerData> = emptyList(),
-    devicePositions: IntArray = IntArray(0),
+    devicePosStore: DevicePosStore? = null,
     currentSpeedMps: Float = 0f,
     // Voice training
     showVoiceTraining: Boolean = false,
@@ -195,7 +196,7 @@ fun MainScreen(
                 RouteMapWidget(
                     locationHistory = locationHistory,
                     markers = mapMarkers,
-                    devicePositions = devicePositions,
+                    devicePosStore = devicePosStore,
                     currentSpeedMps = currentSpeedMps,
                 )
             }
