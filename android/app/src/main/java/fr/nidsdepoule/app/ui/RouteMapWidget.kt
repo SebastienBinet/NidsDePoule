@@ -23,6 +23,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.sensor.LocationReading
@@ -67,6 +71,7 @@ private const val MONTREAL_MAX_LON = -73.47
 fun RouteMapWidget(
     locationHistory: List<LocationReading>,
     markers: List<MapMarkerData>,
+    devicePositions: IntArray = IntArray(0),
     currentSpeedMps: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
@@ -192,10 +197,13 @@ fun RouteMapWidget(
     val centerWX = (routeWorldMinX + routeWorldMaxX) / 2.0
     val centerWY = (routeWorldMinY + routeWorldMaxY) / 2.0
 
+    val textMeasurer = rememberTextMeasurer()
+
     val routeColor = Color(0xFF2196F3)
     val hitColor = Color(0xFFD32F2F)
     val almostColor = Color(0xFFFF8F00)
     val serverColor = Color(0xFF7B1FA2)
+    val crossColor = Color(0xFF9E9E9E)
     val currentPosColor = Color(0xFF4CAF50)
     val bgColor = Color(0xFF1B1B2F)
     val now = System.currentTimeMillis()
@@ -322,6 +330,29 @@ fun RouteMapWidget(
                 )
             }
 
+            // Draw open-data pothole repairs (grey crosses)
+            val crossAlpha = 0.8f
+            val crossC = crossColor.copy(alpha = crossAlpha)
+            val arm = when {
+                z >= 15 -> 8f
+                z >= 12 -> 5f
+                else -> 3f
+            }
+            val crossStroke = when {
+                z >= 15 -> 2.5f
+                z >= 12 -> 2f
+                else -> 1.5f
+            }
+            for (i in 0 until devicePositions.size / 2) {
+                val lat = devicePositions[i * 2] / 1_000_000.0
+                val lon = devicePositions[i * 2 + 1] / 1_000_000.0
+                val pos = geoToScreen(lat, lon)
+                if (pos.x in -arm..w + arm && pos.y in -arm..h + arm) {
+                    drawLine(crossC, Offset(pos.x - arm, pos.y - arm), Offset(pos.x + arm, pos.y + arm), strokeWidth = crossStroke, cap = StrokeCap.Round)
+                    drawLine(crossC, Offset(pos.x - arm, pos.y + arm), Offset(pos.x + arm, pos.y - arm), strokeWidth = crossStroke, cap = StrokeCap.Round)
+                }
+            }
+
             // Draw current position
             val curPos = geoToScreen(curLat, curLon)
             drawCircle(color = currentPosColor, radius = 8f, center = curPos)
@@ -331,6 +362,65 @@ fun RouteMapWidget(
                 center = curPos,
                 style = Stroke(width = 2f),
             )
+
+            // Draw legend (in Montreal-island / touched view)
+            if (isTouched) {
+                val legendItems = listOf(
+                    Triple(hitColor, "circle", "Nid-de-poule détecté"),
+                    Triple(almostColor, "circle", "Presque !"),
+                    Triple(serverColor, "circle", "Signalé (serveur)"),
+                    Triple(crossColor, "cross", "Réparé en 2025"),
+                    Triple(currentPosColor, "circle", "Position actuelle"),
+                )
+                val lineHeight = 18f
+                val legendPadH = 8f
+                val legendPadV = 6f
+                val iconSize = 6f
+                val iconTextGap = 8f
+                val legendTextStyle = TextStyle(color = Color.White, fontSize = 10.sp)
+
+                // Measure text widths to size the background
+                val measuredTexts = legendItems.map { (_, _, label) ->
+                    textMeasurer.measure(label, legendTextStyle)
+                }
+                val maxTextWidth = measuredTexts.maxOf { it.size.width }
+                val legendW = legendPadH * 2 + iconSize * 2 + iconTextGap + maxTextWidth
+                val legendH = legendPadV * 2 + legendItems.size * lineHeight
+
+                val legendX = 8f
+                val legendY = h - legendH - 8f
+
+                // Background
+                drawRoundRect(
+                    color = Color.Black.copy(alpha = 0.6f),
+                    topLeft = Offset(legendX, legendY),
+                    size = androidx.compose.ui.geometry.Size(legendW, legendH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f),
+                )
+
+                // Items
+                for ((idx, item) in legendItems.withIndex()) {
+                    val (color, shape, _) = item
+                    val iy = legendY + legendPadV + idx * lineHeight + lineHeight / 2f
+                    val ix = legendX + legendPadH + iconSize
+
+                    if (shape == "circle") {
+                        drawCircle(color = color, radius = iconSize, center = Offset(ix, iy))
+                    } else {
+                        // Cross
+                        val a = iconSize * 0.8f
+                        drawLine(color, Offset(ix - a, iy - a), Offset(ix + a, iy + a), strokeWidth = 2f, cap = StrokeCap.Round)
+                        drawLine(color, Offset(ix - a, iy + a), Offset(ix + a, iy - a), strokeWidth = 2f, cap = StrokeCap.Round)
+                    }
+
+                    drawText(
+                        textMeasurer = textMeasurer,
+                        text = measuredTexts[idx].layoutInput.text.toString(),
+                        topLeft = Offset(ix + iconSize + iconTextGap, iy - measuredTexts[idx].size.height / 2f),
+                        style = legendTextStyle,
+                    )
+                }
+            }
         }
     }
 }

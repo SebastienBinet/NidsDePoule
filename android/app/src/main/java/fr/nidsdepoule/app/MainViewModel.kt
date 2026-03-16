@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import fr.nidsdepoule.app.store.DevicePosStore
 import fr.nidsdepoule.app.detection.AccelRecorder
 import fr.nidsdepoule.app.detection.HitEvent
 import fr.nidsdepoule.app.detection.ReportSource
@@ -33,6 +34,9 @@ import fr.nidsdepoule.app.ui.MapMarkerType
 import fr.nidsdepoule.app.ui.VoiceFeedback
 import android.os.Handler
 import android.os.Looper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import java.util.UUID
 import kotlin.math.sqrt
 
@@ -67,6 +71,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val dataUsageTracker = DataUsageTracker()
     private val voiceFeedback = VoiceFeedback(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceFeedback") }
     val voiceCommandListener = VoiceCommandListener(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceCommandListener") }
+    val devicePosStore = DevicePosStore(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms devicePosStore") }
 
     // --- Platform adapters ---
     private val accelerometer: AccelerometerSource = AndroidAccelerometer(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms accelerometer") }
@@ -221,6 +226,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             hitReporter.startPotholesFetch()
         }
+
+        // Load open-data pothole repair positions from bundled gpkg
+        devicePosStore.init(CoroutineScope(SupervisorJob() + Dispatchers.IO))
 
         // Wire voice command listener
         if (!DebugFlags.DISABLE_VOICE) {
