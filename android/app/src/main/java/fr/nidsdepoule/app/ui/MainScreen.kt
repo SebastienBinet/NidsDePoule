@@ -23,8 +23,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
 import fr.nidsdepoule.app.R
 import fr.nidsdepoule.app.reporting.CategoryBytes
 import fr.nidsdepoule.app.reporting.DataCategory
@@ -419,15 +417,7 @@ private fun DataUsageCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        showDetail = true
-                        tryAwaitRelease()
-                        showDetail = false
-                    },
-                )
-            },
+            .clickable { showDetail = !showDetail },
         shape = RoundedCornerShape(8.dp),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {

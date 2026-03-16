@@ -355,8 +355,12 @@ function updateHighlights() {
 
 // --- Load clusters ---
 function loadClusters(fitMap) {
-  return fetch('/api/v1/potholes').then(r => r.json()).then(geojson => {
+  return fetch('/api/v1/potholes').then(r => {
+    if (!r.ok) throw new Error(`potholes API ${r.status}`);
+    return r.json();
+  }).then(geojson => {
     const features = geojson.features || [];
+    console.log('[clusters]', features.length, 'clusters loaded');
     document.getElementById('cluster-count').textContent = features.length;
     document.getElementById('hit-count').textContent = features.reduce((s,f) => s + f.properties.hit_count, 0);
 
@@ -391,13 +395,17 @@ function loadClusters(fitMap) {
     }
 
     return features;
-  });
+  }).catch(err => console.error('[clusters] load failed:', err));
 }
 
 // --- Load individual hits ---
 function loadHits() {
-  return fetch('/api/v1/hits/recent?limit=500').then(r => r.json()).then(data => {
+  return fetch('/api/v1/hits/recent?limit=500').then(r => {
+    if (!r.ok) throw new Error(`hits API ${r.status}`);
+    return r.json();
+  }).then(data => {
     allHitsData = data.hits || [];
+    console.log('[hits]', allHitsData.length, 'hits loaded');
     document.getElementById('drawer-count').textContent = allHitsData.length;
 
     // Build GeoJSON for hit points.
@@ -477,7 +485,7 @@ function loadHits() {
 
     updateHighlights();
     return allHitsData;
-  });
+  }).catch(err => console.error('[hits] load failed:', err));
 }
 
 function flyToHit(h, idx, tr) {
