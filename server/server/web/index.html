@@ -123,6 +123,7 @@
     Phones: <span style="color:#00c853">&#9679;</span> <span id="device-count">0</span> &middot;
     <span style="color:#00e676">&#9679;</span> <span id="hl-count">0</span>
   </div>
+  <div id="diag-bar" style="margin-top:4px;font-size:10px;color:#888;font-family:monospace;display:none"></div>
   <div class="btn-row">
     <button class="btn active" id="btn-clusters" onclick="toggleLayer('clusters')">Clusters</button>
     <button class="btn active" id="btn-hits" onclick="toggleLayer('hits')">Individual hits</button>
@@ -399,14 +400,66 @@ function loadClusters(fitMap) {
 }
 
 // --- Load individual hits ---
+
+/** Check whether a hit record has all required numeric fields. */
+function validateHit(h) {
+  const errors = [];
+  if (!h.location || typeof h.location.lat !== 'number' || typeof h.location.lon !== 'number')
+    errors.push('location');
+  if (!h.trajectory || typeof h.trajectory.bearing_deg !== 'number' || typeof h.trajectory.speed_mps !== 'number')
+    errors.push('trajectory');
+  if (!h.pattern || typeof h.pattern.severity !== 'number')
+    errors.push('pattern');
+  if (typeof h.source !== 'string')
+    errors.push('source');
+  return errors;
+}
+
+function updateDiagBar(total, good, bad, badDetails, fetchErr) {
+  const el = document.getElementById('diag-bar');
+  el.style.display = 'block';
+  let txt = `hits: ${total} total, `;
+  if (fetchErr) {
+    txt += `<span style="color:#ef4444">FETCH ERROR: ${fetchErr}</span>`;
+  } else {
+    txt += `<span style="color:#22c55e">${good} good</span>`;
+    if (bad > 0) {
+      txt += `, <span style="color:#ef4444">${bad} bad</span>`;
+      // Show first few bad details
+      const shown = badDetails.slice(0, 3);
+      txt += ' [' + shown.map(d => `#${d.id}: missing ${d.errors.join('+')}`).join('; ') + ']';
+      if (badDetails.length > 3) txt += ` …+${badDetails.length - 3} more`;
+    }
+  }
+  el.innerHTML = txt;
+}
+
 function loadHits() {
   return fetch('/api/v1/hits/recent?limit=500').then(r => {
     if (!r.ok) throw new Error(`hits API ${r.status}`);
     return r.json();
   }).then(data => {
-    allHitsData = data.hits || [];
-    console.log('[hits]', allHitsData.length, 'hits loaded');
-    document.getElementById('drawer-count').textContent = allHitsData.length;
+    const rawHits = data.hits || [];
+    console.log('[hits]', rawHits.length, 'hits loaded');
+
+    // Validate each hit and separate good from bad.
+    const goodHits = [];
+    const badDetails = [];
+    for (const h of rawHits) {
+      const errors = validateHit(h);
+      if (errors.length === 0) {
+        goodHits.push(h);
+      } else {
+        badDetails.push({ id: h.record_id || '?', errors, hit: h });
+        console.warn('[hits] bad record', h.record_id, 'missing:', errors, h);
+      }
+    }
+
+    updateDiagBar(rawHits.length, goodHits.length, badDetails.length, badDetails, null);
+
+    // Only use validated hits for display.
+    allHitsData = goodHits;
+    document.getElementById('drawer-count').textContent = rawHits.length;
 
     // Build GeoJSON for hit points.
     const pointFeatures = allHitsData.map((h, i) => ({
@@ -455,7 +508,7 @@ function loadHits() {
       });
     }
 
-    // Populate table.
+    // Populate table (using only validated hits).
     const tbody = document.getElementById('hits-tbody');
     tbody.innerHTML = '';
     allHitsData.forEach((h, i) => {
@@ -485,7 +538,10 @@ function loadHits() {
 
     updateHighlights();
     return allHitsData;
-  }).catch(err => console.error('[hits] load failed:', err));
+  }).catch(err => {
+    console.error('[hits] load failed:', err);
+    updateDiagBar(0, 0, 0, [], String(err));
+  });
 }
 
 function flyToHit(h, idx, tr) {
