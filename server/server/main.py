@@ -160,13 +160,11 @@ app.include_router(monitoring_router)
 app.include_router(potholes_router)
 
 _WEB_DIR = Path(__file__).parent / "web"
-_PROJECT_ROOT = Path(__file__).parent.parent.parent
-_VERSION_FILE = _PROJECT_ROOT / "VERSION_LABEL"
+_VERSION_LABEL = "v28"
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     """Serve the pothole map dashboard."""
     html = (_WEB_DIR / "index.html").read_text()
-    version = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "?"
-    return html.replace("{{VERSION_LABEL}}", version)
+    return html.replace("{{VERSION_LABEL}}", _VERSION_LABEL)
