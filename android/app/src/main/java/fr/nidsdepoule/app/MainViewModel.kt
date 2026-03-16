@@ -127,8 +127,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var accelSampleCounter = 0
 
     // --- Proximity alert state ---
-    /** Set of already-warned pothole positions (lat_lon key) to avoid repeating. */
-    private val warnedPotholes = mutableSetOf<Long>()
+    /** Map of already-warned pothole keys to their position (for re-warn after leaving). */
+    private val warnedPotholes = mutableMapOf<Long, Pair<Double, Double>>()  // key -> (lat, lon)
     /** Cooldown: minimum time between two proximity alerts (ms). */
     private var lastProximityAlertMs = 0L
 
@@ -467,11 +467,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun checkPotholeProximity(reading: LocationReading) {
         val speed = reading.speedMps
         if (speed < 1f) return  // Not moving, no point warning
-        val now = System.currentTimeMillis()
-        if (now - lastProximityAlertMs < 5_000) return  // Cooldown
 
         val lat1 = reading.latMicrodeg / 1_000_000.0
         val lon1 = reading.lonMicrodeg / 1_000_000.0
+
+        // In dev mode, re-enable warnings for potholes we've moved far away from.
+        // Once beyond 500m (the alert distance cap), the user has clearly left the area
+        // and may loop back — allow re-warning on the next approach.
+        if (devModeEnabled) {
+            val keysToReset = warnedPotholes.entries
+                .filter { (_, pos) -> haversineDistance(lat1, lon1, pos.first, pos.second) > 500.0 }
+                .map { it.key }
+            keysToReset.forEach { warnedPotholes.remove(it) }
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastProximityAlertMs < 5_000) return  // Cooldown
 
         for (marker in serverMarkers) {
             val key = marker.latMicrodeg.toLong() * 1_000_000L + marker.lonMicrodeg
@@ -483,7 +494,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val etaSeconds = distM / speed
 
             if (etaSeconds <= 5.0 && distM < 500) {
-                warnedPotholes.add(key)
+                warnedPotholes[key] = Pair(lat2, lon2)
                 lastProximityAlertMs = now
                 triggerHitFlash("NID DE POULE !")
                 if (!voiceMuted) {
