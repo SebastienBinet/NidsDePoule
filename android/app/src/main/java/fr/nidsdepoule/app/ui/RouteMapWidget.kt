@@ -158,14 +158,6 @@ fun RouteMapWidget(
     val minLon = animMinLon.toDouble()
     val maxLon = animMaxLon.toDouble()
 
-    // Crosses are only drawn when the view has fully settled to the interest zone.
-    // During the press (Montreal overview) we show the overlay bitmap instead.
-    // During the release animation (large transitioning viewport) we show neither,
-    // to avoid the lag of iterating thousands of crosses.
-    val isViewSettled = !isTouched &&
-        Math.abs(animMinLat - defaultMinLat.toFloat()) < 0.001f &&
-        Math.abs(animMaxLat - defaultMaxLat.toFloat()) < 0.001f
-
     // Pick zoom level: find z where the viewport fits within ~5 tiles
     val z = run {
         var zoom = 18
@@ -349,8 +341,9 @@ fun RouteMapWidget(
             // Draw open-data pothole repairs
             // Three states:
             //   1. Pressed (Montreal overview) → low-res overlay bitmap
-            //   2. Animating back (large viewport) → nothing (avoids lag)
-            //   3. Settled on interest zone → individual crosses via binary search
+            //   2. Animating back → crosses from the stable interest zone
+            //      (fixed set, only geoToScreen changes as viewport shrinks)
+            //   3. Settled on interest zone → same crosses, now pixel-perfect
             if (isTouched) {
                 // Montreal overview: draw pre-rendered low-res overlay
                 val img = overlayImageBitmap
@@ -368,28 +361,45 @@ fun RouteMapWidget(
                         ),
                     )
                 }
-            } else if (isViewSettled) {
-                // Settled: draw individual crosses in the small interest zone
+            } else {
+                // Not pressed (animating back or settled): draw crosses
+                // from the stable interest zone (default bounds), NOT the
+                // animated bounds. This keeps the cross count constant and
+                // small regardless of the current animation frame.
                 val crossC = crossColor.copy(alpha = 0.8f)
+                val stableZ = run {
+                    var sz = 18
+                    while (sz > 2) {
+                        val tcx = OsmTileLoader.lonToTileX(defaultMaxLon, sz) -
+                                OsmTileLoader.lonToTileX(defaultMinLon, sz) + 1
+                        val tcy = OsmTileLoader.latToTileY(defaultMaxLat, sz) -
+                                OsmTileLoader.latToTileY(defaultMinLat, sz) + 1
+                        if (tcx <= 5 && tcy <= 5) break
+                        sz--
+                    }
+                    sz
+                }
                 val arm = when {
-                    z >= 15 -> 8f
-                    z >= 12 -> 5f
+                    stableZ >= 15 -> 8f
+                    stableZ >= 12 -> 5f
                     else -> 3f
                 }
                 val crossStrokeW = when {
-                    z >= 15 -> 2.5f
-                    z >= 12 -> 2f
+                    stableZ >= 15 -> 2.5f
+                    stableZ >= 12 -> 2f
                     else -> 1.5f
                 }
-                val minLatMicro = (minLat * 1_000_000).toInt()
-                val maxLatMicro = (maxLat * 1_000_000).toInt()
-                val minLonMicro = (minLon * 1_000_000).toInt()
-                val maxLonMicro = (maxLon * 1_000_000).toInt()
-                val (rangeStart, rangeEnd) = devicePosStore?.latRange(minLatMicro, maxLatMicro) ?: Pair(0, 0)
+                val stableMinLatMicro = (defaultMinLat * 1_000_000).toInt()
+                val stableMaxLatMicro = (defaultMaxLat * 1_000_000).toInt()
+                val stableMinLonMicro = (defaultMinLon * 1_000_000).toInt()
+                val stableMaxLonMicro = (defaultMaxLon * 1_000_000).toInt()
+                val (rangeStart, rangeEnd) = devicePosStore?.latRange(stableMinLatMicro, stableMaxLatMicro) ?: Pair(0, 0)
                 var idx = rangeStart
                 while (idx < rangeEnd) {
                     val lon = devicePositions[idx + 1]
-                    if (lon in minLonMicro..maxLonMicro) {
+                    if (lon in stableMinLonMicro..stableMaxLonMicro) {
+                        // geoToScreen uses the *animated* viewport, so crosses
+                        // move naturally with the zoom animation
                         val pos = geoToScreen(devicePositions[idx] / 1_000_000.0, lon / 1_000_000.0)
                         drawLine(crossC, Offset(pos.x - arm, pos.y - arm), Offset(pos.x + arm, pos.y + arm), strokeWidth = crossStrokeW, cap = StrokeCap.Round)
                         drawLine(crossC, Offset(pos.x - arm, pos.y + arm), Offset(pos.x + arm, pos.y - arm), strokeWidth = crossStrokeW, cap = StrokeCap.Round)
@@ -397,7 +407,6 @@ fun RouteMapWidget(
                     idx += 2
                 }
             }
-            // else: animating back → draw neither overlay nor crosses
 
             // Draw current position
             val curPos = geoToScreen(curLat, curLon)
