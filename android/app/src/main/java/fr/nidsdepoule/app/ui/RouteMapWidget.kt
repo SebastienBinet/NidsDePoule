@@ -158,6 +158,14 @@ fun RouteMapWidget(
     val minLon = animMinLon.toDouble()
     val maxLon = animMaxLon.toDouble()
 
+    // Crosses are only drawn when the view has fully settled to the interest zone.
+    // During the press (Montreal overview) we show the overlay bitmap instead.
+    // During the release animation (large transitioning viewport) we show neither,
+    // to avoid the lag of iterating thousands of crosses.
+    val isViewSettled = !isTouched &&
+        Math.abs(animMinLat - defaultMinLat.toFloat()) < 0.001f &&
+        Math.abs(animMaxLat - defaultMaxLat.toFloat()) < 0.001f
+
     // Pick zoom level: find z where the viewport fits within ~5 tiles
     val z = run {
         var zoom = 18
@@ -339,6 +347,10 @@ fun RouteMapWidget(
             }
 
             // Draw open-data pothole repairs
+            // Three states:
+            //   1. Pressed (Montreal overview) → low-res overlay bitmap
+            //   2. Animating back (large viewport) → nothing (avoids lag)
+            //   3. Settled on interest zone → individual crosses via binary search
             if (isTouched) {
                 // Montreal overview: draw pre-rendered low-res overlay
                 val img = overlayImageBitmap
@@ -356,8 +368,8 @@ fun RouteMapWidget(
                         ),
                     )
                 }
-            } else {
-                // Normal view: binary-search for crosses in visible lat range only
+            } else if (isViewSettled) {
+                // Settled: draw individual crosses in the small interest zone
                 val crossC = crossColor.copy(alpha = 0.8f)
                 val arm = when {
                     z >= 15 -> 8f
@@ -385,6 +397,7 @@ fun RouteMapWidget(
                     idx += 2
                 }
             }
+            // else: animating back → draw neither overlay nor crosses
 
             // Draw current position
             val curPos = geoToScreen(curLat, curLon)
