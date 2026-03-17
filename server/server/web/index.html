@@ -435,12 +435,14 @@ function updateDiagBar(total, good, bad, badDetails, fetchErr) {
 }
 
 function loadHits() {
-  return fetch('/api/v1/hits/recent?limit=500').then(r => {
-    if (!r.ok) throw new Error(`hits API ${r.status}`);
-    return r.json();
-  }).then(data => {
+  return fetch('/api/v1/hits/recent?limit=500').then(r => r.json()).then(data => {
+    // Show server-side error in diag bar if present.
+    if (data.error) {
+      console.error('[hits] server error:', data.error);
+      updateDiagBar(0, 0, 0, [], 'SERVER: ' + data.error);
+    }
     const rawHits = data.hits || [];
-    console.log('[hits]', rawHits.length, 'hits loaded');
+    console.log('[hits]', rawHits.length, 'hits loaded, skipped by server:', data.skipped || 0);
 
     // Validate each hit and separate good from bad.
     const goodHits = [];

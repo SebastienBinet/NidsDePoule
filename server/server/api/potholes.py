@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json as json_mod
+import traceback
+
 import structlog
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
@@ -25,9 +28,34 @@ _SOURCE_LABELS = {
 }
 
 
-def _safe(val, default=0):
-    """Return *val* if it is not None, otherwise *default*."""
-    return val if val is not None else default
+def _num(val, default=0):
+    """Coerce *val* to a number.  Handles None and Firestore special types."""
+    if val is None:
+        return default
+    try:
+        return float(val) if isinstance(val, float) else int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _int(val, default=0):
+    """Coerce *val* to int."""
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _list(val):
+    """Coerce *val* to a plain Python list (handles Firestore repeated fields)."""
+    if val is None:
+        return []
+    try:
+        return list(val)
+    except (TypeError, ValueError):
+        return []
 
 
 @router.get("/potholes")
@@ -38,9 +66,17 @@ async def get_potholes() -> JSONResponse:
     """
     from server.main import get_storage
 
-    raw_hits = get_storage().read_all_hits()
-    clusters = cluster_hits(raw_hits)
-    geojson = clusters_to_geojson(clusters)
+    try:
+        raw_hits = get_storage().read_all_hits()
+        clusters = cluster_hits(raw_hits)
+        geojson = clusters_to_geojson(clusters)
+    except Exception as exc:
+        log.error("potholes_failed", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"{type(exc).__name__}: {exc}",
+                     "type": "FeatureCollection", "features": []},
+        )
     return JSONResponse(content=geojson, media_type="application/geo+json")
 
 
@@ -68,45 +104,48 @@ def _hit_to_detail(record: dict) -> dict | None:
     """Convert a raw storage record to a detailed JSON object for the UI.
 
     Returns None if the record is too malformed to display.
+    Every field is explicitly coerced to plain Python types so that
+    Firestore-specific objects (DatetimeWithNanoseconds,
+    RepeatedScalarContainer, etc.) never leak into the JSON response.
     """
     try:
         hit = record.get("hit") or {}
         loc = hit.get("location") or {}
         pat = hit.get("pattern") or {}
-        source = record.get("source") or "auto"
+        source = str(record.get("source") or "auto")
 
-        lat_microdeg = _safe(loc.get("lat_microdeg"), 0)
-        lon_microdeg = _safe(loc.get("lon_microdeg"), 0)
+        lat_microdeg = _int(loc.get("lat_microdeg"))
+        lon_microdeg = _int(loc.get("lon_microdeg"))
 
         return {
-            "record_id": _safe(record.get("record_id"), 0),
-            "server_timestamp_ms": _safe(record.get("server_timestamp_ms"), 0),
-            "device_id": (record.get("device_id") or "")[:8],
+            "record_id": _int(record.get("record_id")),
+            "server_timestamp_ms": _int(record.get("server_timestamp_ms")),
+            "device_id": str(record.get("device_id") or "")[:8],
             "source": source,
             "source_label": _SOURCE_LABELS.get(source, source),
             "location": {
                 "lat": lat_microdeg / 1_000_000,
                 "lon": lon_microdeg / 1_000_000,
-                "accuracy_m": _safe(loc.get("accuracy_m"), 0),
+                "accuracy_m": _int(loc.get("accuracy_m")),
             },
             "trajectory": {
-                "bearing_deg": _safe(hit.get("bearing_deg"), 0),
-                "bearing_before_deg": _safe(hit.get("bearing_before_deg"), 0),
-                "bearing_after_deg": _safe(hit.get("bearing_after_deg"), 0),
-                "speed_mps": _safe(hit.get("speed_mps"), 0),
+                "bearing_deg": _num(hit.get("bearing_deg")),
+                "bearing_before_deg": _num(hit.get("bearing_before_deg")),
+                "bearing_after_deg": _num(hit.get("bearing_after_deg")),
+                "speed_mps": _num(hit.get("speed_mps")),
             },
             "pattern": {
-                "severity": _safe(pat.get("severity"), 0),
-                "peak_vertical_mg": _safe(pat.get("peak_vertical_mg"), 0),
-                "peak_lateral_mg": _safe(pat.get("peak_lateral_mg"), 0),
-                "duration_ms": _safe(pat.get("duration_ms"), 0),
-                "baseline_mg": _safe(pat.get("baseline_mg"), 0),
-                "peak_to_baseline_ratio": _safe(pat.get("peak_to_baseline_ratio"), 0),
-                "waveform_samples": len(pat.get("waveform_vertical") or []),
-                "waveform_vertical": pat.get("waveform_vertical") or [],
-                "waveform_lateral": pat.get("waveform_lateral") or [],
+                "severity": _int(pat.get("severity")),
+                "peak_vertical_mg": _int(pat.get("peak_vertical_mg")),
+                "peak_lateral_mg": _int(pat.get("peak_lateral_mg")),
+                "duration_ms": _int(pat.get("duration_ms")),
+                "baseline_mg": _int(pat.get("baseline_mg")),
+                "peak_to_baseline_ratio": _int(pat.get("peak_to_baseline_ratio")),
+                "waveform_samples": len(_list(pat.get("waveform_vertical"))),
+                "waveform_vertical": _list(pat.get("waveform_vertical")),
+                "waveform_lateral": _list(pat.get("waveform_lateral")),
             },
-            "timestamp_ms": _safe(hit.get("timestamp_ms"), 0),
+            "timestamp_ms": _int(hit.get("timestamp_ms")),
         }
     except Exception:
         log.warning("hit_to_detail_failed", record_id=record.get("record_id"),
@@ -125,10 +164,26 @@ async def get_recent_hits(
     """
     from server.main import get_storage
 
-    raw_hits = get_storage().read_all_hits()
+    try:
+        raw_hits = get_storage().read_all_hits()
+    except Exception as exc:
+        log.error("read_all_hits_failed", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"read_all_hits failed: {exc}",
+                     "hits": [], "total": 0, "skipped": 0},
+        )
 
     # Sort by server timestamp descending (most recent first).
-    raw_hits.sort(key=lambda r: r.get("server_timestamp_ms", 0), reverse=True)
+    try:
+        raw_hits.sort(
+            key=lambda r: _int(r.get("server_timestamp_ms") if isinstance(r, dict) else 0),
+            reverse=True,
+        )
+    except Exception as exc:
+        log.error("sort_hits_failed", exc_info=True)
+        # Continue with unsorted data rather than crashing.
+
     raw_hits = raw_hits[:limit]
 
     details = []
@@ -140,6 +195,17 @@ async def get_recent_hits(
         else:
             skipped += 1
 
+    # Final safety: make sure the response is actually JSON-serializable.
+    try:
+        json_mod.dumps({"hits": details, "total": len(details), "skipped": skipped})
+    except (TypeError, ValueError) as exc:
+        log.error("hits_json_serialize_failed", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"JSON serialization failed: {exc}",
+                     "hits": [], "total": 0, "skipped": skipped},
+        )
+
     return JSONResponse(content={"hits": details, "total": len(details),
                                  "skipped": skipped})
 
@@ -148,20 +214,41 @@ async def get_recent_hits(
 async def debug_hits(
     limit: int = Query(default=5, ge=1, le=20),
 ) -> JSONResponse:
-    """Return raw storage records for debugging (no transformation)."""
+    """Return raw storage records for debugging (no transformation).
+
+    Uses repr() for non-serializable Firestore types so this endpoint
+    never returns a 500 — it always shows you what's in storage.
+    """
     from server.main import get_storage
 
-    raw_hits = get_storage().read_all_hits()
-    raw_hits.sort(key=lambda r: r.get("server_timestamp_ms", 0), reverse=True)
+    try:
+        raw_hits = get_storage().read_all_hits()
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"read_all_hits failed: {type(exc).__name__}: {exc}",
+                     "traceback": traceback.format_exc()},
+        )
+
+    raw_hits.sort(
+        key=lambda r: _int(r.get("server_timestamp_ms") if isinstance(r, dict) else 0),
+        reverse=True,
+    )
     raw_hits = raw_hits[:limit]
 
-    # Truncate waveforms to keep response small.
-    for r in raw_hits:
-        hit = r.get("hit") or {}
-        pat = hit.get("pattern") or {}
-        for key in ("waveform_vertical", "waveform_lateral"):
-            wf = pat.get(key)
-            if isinstance(wf, list) and len(wf) > 5:
-                pat[key] = wf[:5] + [f"...{len(wf)} total"]
+    # Sanitize: convert every value to JSON-safe types using repr() as fallback.
+    def sanitize(obj):
+        if obj is None or isinstance(obj, (bool, int, float, str)):
+            return obj
+        if isinstance(obj, dict):
+            return {str(k): sanitize(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            items = [sanitize(v) for v in obj]
+            if len(items) > 10:
+                return items[:5] + [f"...{len(items)} total"]
+            return items
+        # Firestore special type — show type name + repr
+        return f"<{type(obj).__name__}>: {repr(obj)}"
 
-    return JSONResponse(content={"raw_records": raw_hits, "count": len(raw_hits)})
+    sanitized = [sanitize(r) for r in raw_hits]
+    return JSONResponse(content={"raw_records": sanitized, "count": len(sanitized)})
