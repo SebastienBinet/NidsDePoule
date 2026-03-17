@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/v1")
+
+# Read version label from the main module at request time (not import time).
+_VERSION_LABEL_PATH = Path(__file__).parent.parent.parent.parent / "VERSION_LABEL"
+
+
+def _read_version_label() -> str:
+    try:
+        return _VERSION_LABEL_PATH.read_text().strip()
+    except OSError:
+        return "unknown"
+
+
+_VERSION_LABEL = _read_version_label()
 
 # Load build info once at import time.
 _BUILD_INFO_PATH = Path(__file__).parent.parent / "build_info.json"
@@ -74,6 +88,47 @@ async def active_devices() -> list:
     from server.main import get_stats
 
     return get_stats().active_devices_with_locations()
+
+
+@router.get("/debug/storage")
+async def debug_storage() -> dict:
+    """Diagnostic endpoint: reveals which storage backend is active."""
+    from server.main import get_storage, get_config, get_stats
+
+    storage = get_storage()
+    config = get_config()
+    stats = get_stats()
+    snapshot = stats.snapshot()
+
+    cls_name = type(storage).__name__
+
+    details: dict = {}
+    if cls_name == "FileHitStorage":
+        base = Path(config.storage.base_dir)
+        details["base_dir"] = str(base)
+        details["dir_exists"] = base.exists()
+        details["dir_writable"] = os.access(base, os.W_OK) if base.exists() else False
+    elif cls_name == "FirebaseHitStorage":
+        details["bucket_name"] = getattr(storage, "_bucket", None) and storage._bucket.name
+        details["has_credentials"] = True
+    elif cls_name == "FirestoreHitStorage":
+        details["cache_size"] = len(getattr(storage, "_cache", {}))
+        details["buffer_size"] = len(getattr(storage, "_buffer", []))
+        details["write_count"] = getattr(storage, "_write_count", 0)
+        details["max_writes"] = getattr(storage, "_max_writes", 0)
+        details["doc_count"] = getattr(storage, "_doc_count", 0)
+        details["flush_interval_s"] = getattr(storage, "_flush_interval_s", 0)
+
+    return {
+        "version": _VERSION_LABEL,
+        "storage_backend_config": config.storage.backend,
+        "storage_backend_class": cls_name,
+        "storage_details": details,
+        "queue_depth": snapshot["queue_depth"],
+        "hits_received": snapshot["hits_received"],
+        "hits_stored": snapshot["hits_stored"],
+        "storage_errors": snapshot["storage_errors"],
+    }
 
 
 @router.get("/config")
