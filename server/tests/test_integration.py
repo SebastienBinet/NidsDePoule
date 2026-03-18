@@ -121,6 +121,8 @@ async def test_storage_error_recorded(client, spy_storage):
     stats_resp = await client.get("/api/v1/stats")
     stats = stats_resp.json()
     assert stats["storage_errors"] >= 1
+    assert stats["last_storage_error"] != ""
+    assert stats["last_storage_error_time"] > 0
 
 
 @pytest.mark.asyncio

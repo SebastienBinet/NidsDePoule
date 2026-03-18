@@ -278,8 +278,8 @@ class HitReporter(
     }
 
     companion object {
-        /** Heartbeat interval in milliseconds (10 seconds). */
-        const val HEARTBEAT_INTERVAL_MS = 10_000L
+        /** Heartbeat interval in milliseconds (0.5 seconds). */
+        const val HEARTBEAT_INTERVAL_MS = 500L
         /** Potholes fetch interval in milliseconds (30 seconds). */
         const val POTHOLES_INTERVAL_MS = 30_000L
     }

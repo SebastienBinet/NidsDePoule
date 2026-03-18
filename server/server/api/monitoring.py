@@ -128,6 +128,8 @@ async def debug_storage() -> dict:
         "hits_received": snapshot["hits_received"],
         "hits_stored": snapshot["hits_stored"],
         "storage_errors": snapshot["storage_errors"],
+        "last_storage_error": snapshot["last_storage_error"],
+        "last_storage_error_time": snapshot["last_storage_error_time"],
     }
 
 

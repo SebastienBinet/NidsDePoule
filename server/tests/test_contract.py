@@ -307,3 +307,5 @@ async def test_debug_storage_endpoint(client):
     assert "hits_received" in data
     assert "hits_stored" in data
     assert "storage_errors" in data
+    assert "last_storage_error" in data
+    assert "last_storage_error_time" in data
