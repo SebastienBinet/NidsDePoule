@@ -44,6 +44,8 @@ class ServerStats:
         self.batches_received: int = 0
         self.heartbeats_received: int = 0
         self.storage_errors: int = 0
+        self.last_storage_error: str = ""
+        self.last_storage_error_time: float = 0.0
         self.queue_depth: int = 0
         self.queue_max_depth: int = 0
 
@@ -132,9 +134,12 @@ class ServerStats:
         with self._lock:
             self.hits_rejected += count
 
-    def record_storage_error(self) -> None:
+    def record_storage_error(self, error_msg: str = "") -> None:
         with self._lock:
             self.storage_errors += 1
+            if error_msg:
+                self.last_storage_error = error_msg
+                self.last_storage_error_time = time.time()
 
     def update_queue_depth(self, depth: int) -> None:
         with self._lock:
@@ -192,6 +197,8 @@ class ServerStats:
                 "batches_received": self.batches_received,
                 "heartbeats_received": self.heartbeats_received,
                 "storage_errors": self.storage_errors,
+                "last_storage_error": self.last_storage_error,
+                "last_storage_error_time": self.last_storage_error_time,
                 "queue_depth": self.queue_depth,
                 "queue_max_depth_ever": self.queue_max_depth,
                 "active_devices": {
