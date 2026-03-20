@@ -23,9 +23,16 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.sensor.LocationReading
+import fr.nidsdepoule.app.store.DevicePosStore
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.cos
 import kotlin.math.max
 
@@ -47,6 +54,12 @@ data class MapMarkerData(
 /** How many seconds ahead of travel the map should cover. */
 const val MAP_LOOKAHEAD_SECONDS = 60f
 
+/** Montreal island bounding box (approx). */
+private const val MONTREAL_MIN_LAT = 45.40
+private const val MONTREAL_MAX_LAT = 45.72
+private const val MONTREAL_MIN_LON = -73.98
+private const val MONTREAL_MAX_LON = -73.47
+
 /**
  * Lightweight route widget drawn with Compose Canvas + async OSM tiles.
  *
@@ -61,6 +74,7 @@ const val MAP_LOOKAHEAD_SECONDS = 60f
 fun RouteMapWidget(
     locationHistory: List<LocationReading>,
     markers: List<MapMarkerData>,
+    devicePosStore: DevicePosStore? = null,
     currentSpeedMps: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
@@ -72,13 +86,8 @@ fun RouteMapWidget(
     // Radius based on speed: speed * 60s, minimum 100 m
     val speedRadiusM = max(currentSpeedMps * MAP_LOOKAHEAD_SECONDS, 100f)
 
-    // Touch state: expand to 1 km when touched
+    // Touch state: expand to Montreal island when touched
     var isTouched by remember { mutableStateOf(false) }
-    val minRadiusM by animateFloatAsState(
-        targetValue = if (isTouched) 1000f else speedRadiusM,
-        animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
-        label = "minRadius",
-    )
 
     // Flash animation for recent markers
     val infiniteTransition = rememberInfiniteTransition(label = "markerFlash")
@@ -110,30 +119,44 @@ fun RouteMapWidget(
     val curLat = locationHistory.last().latMicrodeg / 1_000_000.0
     val curLon = locationHistory.last().lonMicrodeg / 1_000_000.0
 
-    // Collect all points (route + markers) in degrees
-    val allLats = locationHistory.map { it.latMicrodeg / 1_000_000.0 } +
-            markers.map { it.latMicrodeg / 1_000_000.0 }
-    val allLons = locationHistory.map { it.lonMicrodeg / 1_000_000.0 } +
-            markers.map { it.lonMicrodeg / 1_000_000.0 }
-
-    var minLat = allLats.min()
-    var maxLat = allLats.max()
-    var minLon = allLons.min()
-    var maxLon = allLons.max()
-
-    // Enforce minimum radius around current position
-    // 1 degree latitude ≈ 111,320 meters
-    // 1 degree longitude ≈ 111,320 * cos(lat) meters
+    // Animate between current-position view and Montreal island view
     val metersPerDegLat = 111_320.0
     val metersPerDegLon = 111_320.0 * cos(Math.toRadians(curLat))
-    val minRadiusDegLat = minRadiusM / metersPerDegLat
-    val minRadiusDegLon = if (metersPerDegLon > 0) minRadiusM / metersPerDegLon else minRadiusDegLat
+    val speedRadiusDegLat = speedRadiusM / metersPerDegLat
+    val speedRadiusDegLon = if (metersPerDegLon > 0) speedRadiusM / metersPerDegLon else speedRadiusDegLat
 
-    // Expand bounds to ensure minimum radius around current position
-    minLat = minOf(minLat, curLat - minRadiusDegLat)
-    maxLat = maxOf(maxLat, curLat + minRadiusDegLat)
-    minLon = minOf(minLon, curLon - minRadiusDegLon)
-    maxLon = maxOf(maxLon, curLon + minRadiusDegLon)
+    // Default view: centered on current position with speed-based radius
+    val defaultMinLat = curLat - speedRadiusDegLat
+    val defaultMaxLat = curLat + speedRadiusDegLat
+    val defaultMinLon = curLon - speedRadiusDegLon
+    val defaultMaxLon = curLon + speedRadiusDegLon
+
+    // Animate bounds between default and Montreal island
+    val animMinLat by animateFloatAsState(
+        targetValue = if (isTouched) MONTREAL_MIN_LAT.toFloat() else defaultMinLat.toFloat(),
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "minLat",
+    )
+    val animMaxLat by animateFloatAsState(
+        targetValue = if (isTouched) MONTREAL_MAX_LAT.toFloat() else defaultMaxLat.toFloat(),
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "maxLat",
+    )
+    val animMinLon by animateFloatAsState(
+        targetValue = if (isTouched) MONTREAL_MIN_LON.toFloat() else defaultMinLon.toFloat(),
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "minLon",
+    )
+    val animMaxLon by animateFloatAsState(
+        targetValue = if (isTouched) MONTREAL_MAX_LON.toFloat() else defaultMaxLon.toFloat(),
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "maxLon",
+    )
+
+    val minLat = animMinLat.toDouble()
+    val maxLat = animMaxLat.toDouble()
+    val minLon = animMinLon.toDouble()
+    val maxLon = animMaxLon.toDouble()
 
     // Pick zoom level: find z where the viewport fits within ~5 tiles
     val z = run {
@@ -177,10 +200,18 @@ fun RouteMapWidget(
     val centerWX = (routeWorldMinX + routeWorldMaxX) / 2.0
     val centerWY = (routeWorldMinY + routeWorldMaxY) / 2.0
 
+    val textMeasurer = rememberTextMeasurer()
+
+    // Collect device positions and overlay from store
+    val devicePositions by (devicePosStore?.positions ?: MutableStateFlow(IntArray(0))).collectAsState()
+    val overlayBitmap by (devicePosStore?.overlay ?: MutableStateFlow(null)).collectAsState()
+    val overlayImageBitmap = remember(overlayBitmap) { overlayBitmap?.asImageBitmap() }
+
     val routeColor = Color(0xFF2196F3)
     val hitColor = Color(0xFFD32F2F)
     val almostColor = Color(0xFFFF8F00)
     val serverColor = Color(0xFF7B1FA2)
+    val crossColor = Color(0xFF9E9E9E)
     val currentPosColor = Color(0xFF4CAF50)
     val bgColor = Color(0xFF1B1B2F)
     val now = System.currentTimeMillis()
@@ -307,6 +338,76 @@ fun RouteMapWidget(
                 )
             }
 
+            // Draw open-data pothole repairs
+            // Three states:
+            //   1. Pressed (Montreal overview) → low-res overlay bitmap
+            //   2. Animating back → crosses from the stable interest zone
+            //      (fixed set, only geoToScreen changes as viewport shrinks)
+            //   3. Settled on interest zone → same crosses, now pixel-perfect
+            if (isTouched) {
+                // Montreal overview: draw pre-rendered low-res overlay
+                val img = overlayImageBitmap
+                if (img != null) {
+                    val topLeft = geoToScreen(DevicePosStore.OVERLAY_MAX_LAT, DevicePosStore.OVERLAY_MIN_LON)
+                    val bottomRight = geoToScreen(DevicePosStore.OVERLAY_MIN_LAT, DevicePosStore.OVERLAY_MAX_LON)
+                    drawImage(
+                        image = img,
+                        srcOffset = IntOffset.Zero,
+                        srcSize = IntSize(img.width, img.height),
+                        dstOffset = IntOffset(topLeft.x.toInt(), topLeft.y.toInt()),
+                        dstSize = IntSize(
+                            (bottomRight.x - topLeft.x).toInt(),
+                            (bottomRight.y - topLeft.y).toInt(),
+                        ),
+                    )
+                }
+            } else {
+                // Not pressed (animating back or settled): draw crosses
+                // from the stable interest zone (default bounds), NOT the
+                // animated bounds. This keeps the cross count constant and
+                // small regardless of the current animation frame.
+                val crossC = crossColor.copy(alpha = 0.8f)
+                val stableZ = run {
+                    var sz = 18
+                    while (sz > 2) {
+                        val tcx = OsmTileLoader.lonToTileX(defaultMaxLon, sz) -
+                                OsmTileLoader.lonToTileX(defaultMinLon, sz) + 1
+                        val tcy = OsmTileLoader.latToTileY(defaultMaxLat, sz) -
+                                OsmTileLoader.latToTileY(defaultMinLat, sz) + 1
+                        if (tcx <= 5 && tcy <= 5) break
+                        sz--
+                    }
+                    sz
+                }
+                val arm = when {
+                    stableZ >= 15 -> 8f
+                    stableZ >= 12 -> 5f
+                    else -> 3f
+                }
+                val crossStrokeW = when {
+                    stableZ >= 15 -> 2.5f
+                    stableZ >= 12 -> 2f
+                    else -> 1.5f
+                }
+                val stableMinLatMicro = (defaultMinLat * 1_000_000).toInt()
+                val stableMaxLatMicro = (defaultMaxLat * 1_000_000).toInt()
+                val stableMinLonMicro = (defaultMinLon * 1_000_000).toInt()
+                val stableMaxLonMicro = (defaultMaxLon * 1_000_000).toInt()
+                val (rangeStart, rangeEnd) = devicePosStore?.latRange(stableMinLatMicro, stableMaxLatMicro) ?: Pair(0, 0)
+                var idx = rangeStart
+                while (idx < rangeEnd) {
+                    val lon = devicePositions[idx + 1]
+                    if (lon in stableMinLonMicro..stableMaxLonMicro) {
+                        // geoToScreen uses the *animated* viewport, so crosses
+                        // move naturally with the zoom animation
+                        val pos = geoToScreen(devicePositions[idx] / 1_000_000.0, lon / 1_000_000.0)
+                        drawLine(crossC, Offset(pos.x - arm, pos.y - arm), Offset(pos.x + arm, pos.y + arm), strokeWidth = crossStrokeW, cap = StrokeCap.Round)
+                        drawLine(crossC, Offset(pos.x - arm, pos.y + arm), Offset(pos.x + arm, pos.y - arm), strokeWidth = crossStrokeW, cap = StrokeCap.Round)
+                    }
+                    idx += 2
+                }
+            }
+
             // Draw current position
             val curPos = geoToScreen(curLat, curLon)
             drawCircle(color = currentPosColor, radius = 8f, center = curPos)
@@ -316,6 +417,65 @@ fun RouteMapWidget(
                 center = curPos,
                 style = Stroke(width = 2f),
             )
+
+            // Draw legend (in Montreal-island / touched view)
+            if (isTouched) {
+                val legendItems = listOf(
+                    Triple(hitColor, "circle", "Nid-de-poule détecté"),
+                    Triple(almostColor, "circle", "Presque !"),
+                    Triple(serverColor, "circle", "Signalé (serveur)"),
+                    Triple(crossColor, "cross", "Réparé en 2025"),
+                    Triple(currentPosColor, "circle", "Position actuelle"),
+                )
+                val lineHeight = 18f
+                val legendPadH = 8f
+                val legendPadV = 6f
+                val iconSize = 6f
+                val iconTextGap = 8f
+                val legendTextStyle = TextStyle(color = Color.White, fontSize = 10.sp)
+
+                // Measure text widths to size the background
+                val measuredTexts = legendItems.map { (_, _, label) ->
+                    textMeasurer.measure(label, legendTextStyle)
+                }
+                val maxTextWidth = measuredTexts.maxOf { it.size.width }
+                val legendW = legendPadH * 2 + iconSize * 2 + iconTextGap + maxTextWidth
+                val legendH = legendPadV * 2 + legendItems.size * lineHeight
+
+                val legendX = 8f
+                val legendY = h - legendH - 8f
+
+                // Background
+                drawRoundRect(
+                    color = Color.Black.copy(alpha = 0.6f),
+                    topLeft = Offset(legendX, legendY),
+                    size = androidx.compose.ui.geometry.Size(legendW, legendH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f),
+                )
+
+                // Items
+                for ((idx, item) in legendItems.withIndex()) {
+                    val (color, shape, _) = item
+                    val iy = legendY + legendPadV + idx * lineHeight + lineHeight / 2f
+                    val ix = legendX + legendPadH + iconSize
+
+                    if (shape == "circle") {
+                        drawCircle(color = color, radius = iconSize, center = Offset(ix, iy))
+                    } else {
+                        // Cross
+                        val a = iconSize * 0.8f
+                        drawLine(color, Offset(ix - a, iy - a), Offset(ix + a, iy + a), strokeWidth = 2f, cap = StrokeCap.Round)
+                        drawLine(color, Offset(ix - a, iy + a), Offset(ix + a, iy - a), strokeWidth = 2f, cap = StrokeCap.Round)
+                    }
+
+                    drawText(
+                        textMeasurer = textMeasurer,
+                        text = measuredTexts[idx].layoutInput.text.toString(),
+                        topLeft = Offset(ix + iconSize + iconTextGap, iy - measuredTexts[idx].size.height / 2f),
+                        style = legendTextStyle,
+                    )
+                }
+            }
         }
     }
 }

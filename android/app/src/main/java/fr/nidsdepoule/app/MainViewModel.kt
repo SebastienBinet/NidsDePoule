@@ -8,10 +8,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import fr.nidsdepoule.app.store.DevicePosStore
 import fr.nidsdepoule.app.detection.AccelRecorder
 import fr.nidsdepoule.app.detection.HitEvent
 import fr.nidsdepoule.app.detection.ReportSource
+import fr.nidsdepoule.app.reporting.CategoryBytes
+import fr.nidsdepoule.app.reporting.DataCategory
 import fr.nidsdepoule.app.reporting.DataUsageTracker
+import fr.nidsdepoule.app.ui.OsmTileLoader
 import fr.nidsdepoule.app.reporting.HitReportData
 import fr.nidsdepoule.app.reporting.HitReporter
 import fr.nidsdepoule.app.reporting.OkHttpClientAdapter
@@ -30,6 +34,9 @@ import fr.nidsdepoule.app.ui.MapMarkerType
 import fr.nidsdepoule.app.ui.VoiceFeedback
 import android.os.Handler
 import android.os.Looper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import java.util.UUID
 import kotlin.math.sqrt
 
@@ -64,6 +71,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val dataUsageTracker = DataUsageTracker()
     private val voiceFeedback = VoiceFeedback(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceFeedback") }
     val voiceCommandListener = VoiceCommandListener(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceCommandListener") }
+    val devicePosStore = DevicePosStore(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms devicePosStore") }
 
     // --- Platform adapters ---
     private val accelerometer: AccelerometerSource = AndroidAccelerometer(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms accelerometer") }
@@ -119,8 +127,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var accelSampleCounter = 0
 
     // --- Proximity alert state ---
-    /** Set of already-warned pothole positions (lat_lon key) to avoid repeating. */
-    private val warnedPotholes = mutableSetOf<Long>()
+    /** Map of already-warned pothole keys to their position (for re-warn after leaving). */
+    private val warnedPotholes = mutableMapOf<Long, Pair<Double, Double>>()  // key -> (lat, lon)
     /** Cooldown: minimum time between two proximity alerts (ms). */
     private var lastProximityAlertMs = 0L
 
@@ -165,6 +173,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isConnected = connected
             }
             hitReporter.checkConnectivity()
+        }
+
+        // Wire tile download tracking to data usage tracker
+        OsmTileLoader.onTileBytes = { bytes ->
+            dataUsageTracker.record(0, bytes, DataCategory.TILES)
         }
 
         // Restore data usage counters (week + month, upload + download)
@@ -213,6 +226,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             hitReporter.startPotholesFetch()
         }
+
+        // Load open-data pothole repair positions from bundled gpkg
+        devicePosStore.init(CoroutineScope(SupervisorJob() + Dispatchers.IO))
 
         // Wire voice command listener
         if (!DebugFlags.DISABLE_VOICE) {
@@ -451,11 +467,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun checkPotholeProximity(reading: LocationReading) {
         val speed = reading.speedMps
         if (speed < 1f) return  // Not moving, no point warning
-        val now = System.currentTimeMillis()
-        if (now - lastProximityAlertMs < 5_000) return  // Cooldown
 
         val lat1 = reading.latMicrodeg / 1_000_000.0
         val lon1 = reading.lonMicrodeg / 1_000_000.0
+
+        // In dev mode, re-enable warnings for potholes we've moved far away from.
+        // Once beyond 500m (the alert distance cap), the user has clearly left the area
+        // and may loop back — allow re-warning on the next approach.
+        if (devModeEnabled) {
+            val keysToReset = warnedPotholes.entries
+                .filter { (_, pos) -> haversineDistance(lat1, lon1, pos.first, pos.second) > 500.0 }
+                .map { it.key }
+            keysToReset.forEach { warnedPotholes.remove(it) }
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastProximityAlertMs < 5_000) return  // Cooldown
 
         for (marker in serverMarkers) {
             val key = marker.latMicrodeg.toLong() * 1_000_000L + marker.lonMicrodeg
@@ -467,7 +494,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val etaSeconds = distM / speed
 
             if (etaSeconds <= 5.0 && distM < 500) {
-                warnedPotholes.add(key)
+                warnedPotholes[key] = Pair(lat2, lon2)
                 lastProximityAlertMs = now
                 triggerHitFlash("NID DE POULE !")
                 if (!voiceMuted) {
@@ -568,6 +595,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val mbDownloadThisWeek: Float get() = dataUsageTracker.mbDownloadThisWeek()
     val mbUploadThisMonth: Float get() = dataUsageTracker.mbUploadThisMonth()
     val mbDownloadThisMonth: Float get() = dataUsageTracker.mbDownloadThisMonth()
+    val dataCategorySnapshot: Map<DataCategory, CategoryBytes> get() = dataUsageTracker.categorySnapshot()
 
     // --- Private ---
 

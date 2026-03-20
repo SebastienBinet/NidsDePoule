@@ -24,7 +24,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.R
+import fr.nidsdepoule.app.reporting.CategoryBytes
+import fr.nidsdepoule.app.reporting.DataCategory
 import fr.nidsdepoule.app.sensor.LocationReading
+import fr.nidsdepoule.app.store.DevicePosStore
 import fr.nidsdepoule.app.sensor.audio.MfccExtractor
 import fr.nidsdepoule.app.sensor.audio.VoiceProfileStore
 
@@ -51,6 +54,7 @@ fun MainScreen(
     mbDownloadThisWeek: Float,
     mbUploadThisMonth: Float,
     mbDownloadThisMonth: Float,
+    dataCategorySnapshot: Map<DataCategory, CategoryBytes> = emptyMap(),
     appVersion: String,
     buildTime: String,
     versionLabel: String,
@@ -70,6 +74,7 @@ fun MainScreen(
     // Map
     locationHistory: List<LocationReading> = emptyList(),
     mapMarkers: List<MapMarkerData> = emptyList(),
+    devicePosStore: DevicePosStore? = null,
     currentSpeedMps: Float = 0f,
     // Voice training
     showVoiceTraining: Boolean = false,
@@ -189,6 +194,7 @@ fun MainScreen(
                 RouteMapWidget(
                     locationHistory = locationHistory,
                     markers = mapMarkers,
+                    devicePosStore = devicePosStore,
                     currentSpeedMps = currentSpeedMps,
                 )
             }
@@ -223,6 +229,7 @@ fun MainScreen(
             mbDownloadThisWeek = mbDownloadThisWeek,
             mbUploadThisMonth = mbUploadThisMonth,
             mbDownloadThisMonth = mbDownloadThisMonth,
+            categorySnapshot = dataCategorySnapshot,
         )
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -403,9 +410,14 @@ private fun DataUsageCard(
     mbDownloadThisWeek: Float,
     mbUploadThisMonth: Float,
     mbDownloadThisMonth: Float,
+    categorySnapshot: Map<DataCategory, CategoryBytes> = emptyMap(),
 ) {
+    var showDetail by remember { mutableStateOf(false) }
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { showDetail = !showDetail },
         shape = RoundedCornerShape(8.dp),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -415,78 +427,149 @@ private fun DataUsageCard(
                 fontWeight = FontWeight.Medium,
             )
             Spacer(modifier = Modifier.height(6.dp))
-            // Header row
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = stringResource(R.string.this_week),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = stringResource(R.string.this_month),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    modifier = Modifier.weight(1f),
-                )
+
+            AnimatedVisibility(visible = !showDetail) {
+                // Summary view
+                Column {
+                    // Header row
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = stringResource(R.string.this_week),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = stringResource(R.string.this_month),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    // Upload row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.data_upload),
+                            fontSize = 12.sp,
+                            color = Color(0xFF2196F3),
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = formatMb(mbUploadThisWeek),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = formatMb(mbUploadThisMonth),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    // Download row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.data_download),
+                            fontSize = 12.sp,
+                            color = Color(0xFF4CAF50),
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = formatMb(mbDownloadThisWeek),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = formatMb(mbDownloadThisMonth),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
             }
-            Spacer(modifier = Modifier.height(2.dp))
-            // Upload row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.data_upload),
-                    fontSize = 12.sp,
-                    color = Color(0xFF2196F3),
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = formatMb(mbUploadThisWeek),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = formatMb(mbUploadThisMonth),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Spacer(modifier = Modifier.height(2.dp))
-            // Download row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.data_download),
-                    fontSize = 12.sp,
-                    color = Color(0xFF4CAF50),
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = formatMb(mbDownloadThisWeek),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = formatMb(mbDownloadThisMonth),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
+
+            AnimatedVisibility(visible = showDetail) {
+                // Per-category detail view (session only)
+                Column {
+                    Text(
+                        text = "Détails (cette session)",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    // Header
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Spacer(modifier = Modifier.weight(1.5f))
+                        Text("↑ Envoi", fontSize = 10.sp,
+                            color = Color(0xFF2196F3),
+                            modifier = Modifier.weight(1f))
+                        Text("↓ Reçu", fontSize = 10.sp,
+                            color = Color(0xFF4CAF50),
+                            modifier = Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    DataCategoryRow("Rapports", DataCategory.HITS, categorySnapshot)
+                    DataCategoryRow("Heartbeat", DataCategory.HEARTBEAT, categorySnapshot)
+                    DataCategoryRow("Nids-de-poule", DataCategory.POTHOLES, categorySnapshot)
+                    DataCategoryRow("Tuiles carte", DataCategory.TILES, categorySnapshot)
+                }
             }
         }
     }
+}
+
+@Composable
+private fun DataCategoryRow(
+    label: String,
+    category: DataCategory,
+    snapshot: Map<DataCategory, CategoryBytes>,
+) {
+    val bytes = snapshot[category]
+    val up = (bytes?.uploadBytes ?: 0L) / 1024f
+    val down = (bytes?.downloadBytes ?: 0L) / 1024f
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1.5f),
+        )
+        Text(
+            text = formatKb(up),
+            fontSize = 12.sp,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = formatKb(down),
+            fontSize = 12.sp,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+private fun formatKb(kb: Float): String {
+    return if (kb < 1f) "—"
+    else if (kb < 1024f) "%.0f KB".format(kb)
+    else "%.1f MB".format(kb / 1024f)
 }
 
 private fun formatMb(mb: Float): String {

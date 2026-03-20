@@ -70,6 +70,10 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    aaptOptions {
+        noCompress += "mbtiles"
+    }
 }
 
 dependencies {
@@ -95,9 +99,6 @@ dependencies {
 
     // Google Play Services (Fused Location Provider)
     implementation("com.google.android.gms:play-services-location:21.0.1")
-
-    // OpenStreetMap (map widget — no API key required)
-    implementation("org.osmdroid:osmdroid-android:6.1.18")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

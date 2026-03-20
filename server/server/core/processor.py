@@ -125,7 +125,7 @@ class HitProcessor:
                 self._stats.update_queue_depth(self._queue.qsize())
                 log.debug("hit_stored", record_id=record.record_id,
                           device=record.device_id[:8])
-            except Exception:
+            except Exception as exc:
                 log.error("storage_write_failed", record_id=record.record_id,
                           exc_info=True)
-                self._stats.record_storage_error()
+                self._stats.record_storage_error(str(exc))

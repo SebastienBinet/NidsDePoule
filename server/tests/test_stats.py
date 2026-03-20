@@ -90,13 +90,15 @@ def test_stored_and_rejected_counters():
     stats = ServerStats()
     stats.record_stored(5, 3500)
     stats.record_rejected(2)
-    stats.record_storage_error()
+    stats.record_storage_error("test error message")
 
     snap = stats.snapshot()
     assert snap["hits_stored"] == 5
     assert snap["bytes_stored"] == 3500
     assert snap["hits_rejected"] == 2
     assert snap["storage_errors"] == 1
+    assert snap["last_storage_error"] == "test error message"
+    assert snap["last_storage_error_time"] > 0
 
 
 def test_multiple_devices_mixed():

@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import fr.nidsdepoule.app.sensor.VoiceCommandListener
 import fr.nidsdepoule.app.ui.MainScreen
+import fr.nidsdepoule.app.ui.OsmTileLoader
 
 class MainActivity : ComponentActivity() {
 
@@ -50,6 +51,9 @@ class MainActivity : ComponentActivity() {
         // Keep screen on while detection is active
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        // Initialize offline tile store (copies MBTiles from assets on first launch)
+        OsmTileLoader.init(applicationContext)
+
         android.util.Log.d("NDP_INIT", "+${System.currentTimeMillis()-t0}ms before setContent")
         setContent {
             NidsDePouleTheme {
@@ -68,6 +72,7 @@ class MainActivity : ComponentActivity() {
                         mbDownloadThisWeek = viewModel.mbDownloadThisWeek,
                         mbUploadThisMonth = viewModel.mbUploadThisMonth,
                         mbDownloadThisMonth = viewModel.mbDownloadThisMonth,
+                        dataCategorySnapshot = viewModel.dataCategorySnapshot,
                         appVersion = viewModel.appVersionName,
                         buildTime = BuildConfig.BUILD_TIME,
                         versionLabel = BuildConfig.VERSION_LABEL,
@@ -87,6 +92,7 @@ class MainActivity : ComponentActivity() {
                         // Map
                         locationHistory = viewModel.locationHistorySnapshot,
                         mapMarkers = viewModel.mapMarkers,
+                        devicePosStore = viewModel.devicePosStore,
                         currentSpeedMps = viewModel.currentSpeedMps,
                         // Voice training
                         showVoiceTraining = viewModel.showVoiceTraining,
