@@ -22,7 +22,7 @@ class OfflineTileStore(private val context: Context) {
     private val ready = CompletableDeferred<Boolean>()
 
     /** Version string — bump when the mbtiles asset is regenerated. */
-    private val assetVersion = "1"
+    private val assetVersion = "2"
     private val assetName = "montreal_tiles.mbtiles"
 
     /** Start the async copy-from-assets if needed, then open the database. */

@@ -23,7 +23,7 @@ object OsmTileLoader {
     data class TileKey(val z: Int, val x: Int, val y: Int)
 
     private const val TILE_SIZE = 256
-    private const val MAX_TILES = 30 // ~7MB max
+    private const val MAX_TILES = 200 // ~51MB max (zoom-17 viewport needs ~36 tiles)
     private const val MAX_CONCURRENT = 4
 
     /** Callback to record tile download bytes. Set from MainViewModel. */
