@@ -18,11 +18,12 @@ import java.io.File
  */
 class OfflineTileStore(private val context: Context) {
 
+    @Volatile
     private var db: SQLiteDatabase? = null
     private val ready = CompletableDeferred<Boolean>()
 
     /** Version string — bump when the mbtiles asset is regenerated. */
-    private val assetVersion = "2"
+    private val assetVersion = "3"
     private val assetName = "montreal_tiles.mbtiles"
 
     /** Maximum zoom level available in the mbtiles file. */
