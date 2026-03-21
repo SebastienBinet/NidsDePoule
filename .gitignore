@@ -44,7 +44,8 @@ venv/
 .venv/
 .env
 
-# Offline tile packs (WAL/SHM artifacts — the .mbtiles itself is tracked via Git LFS)
+# Offline tile packs (downloaded from GitHub Releases — see android/download-tiles.sh)
+*.mbtiles
 *.mbtiles-shm
 *.mbtiles-wal
 

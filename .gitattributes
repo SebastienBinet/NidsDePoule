@@ -1,2 +1,1 @@
-# Git LFS - large binary files
-android/app/src/main/assets/*.mbtiles filter=lfs diff=lfs merge=lfs -text
+# (mbtiles moved to GitHub Releases — see android/download-tiles.sh)
