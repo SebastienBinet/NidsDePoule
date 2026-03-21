@@ -160,7 +160,7 @@ app.include_router(monitoring_router)
 app.include_router(potholes_router)
 
 _WEB_DIR = Path(__file__).parent / "web"
-_VERSION_LABEL = "v34"
+_VERSION_LABEL = "v35"
 
 
 @app.get("/", response_class=HTMLResponse)

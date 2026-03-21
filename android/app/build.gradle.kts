@@ -76,6 +76,27 @@ android {
     }
 }
 
+// Download offline mbtiles from GitHub Releases if not present in assets.
+val downloadTiles by tasks.registering {
+    val dest = file("src/main/assets/montreal_tiles.mbtiles")
+    outputs.file(dest)
+    doLast {
+        if (dest.exists()) {
+            logger.lifecycle("✓ montreal_tiles.mbtiles already present (${dest.length() / 1024} KB)")
+            return@doLast
+        }
+        dest.parentFile.mkdirs()
+        val url = "https://github.com/SebastienBinet/NidsDePoule/releases/download/tiles-v1/montreal_tiles.mbtiles"
+        logger.lifecycle("Downloading montreal_tiles.mbtiles from GitHub Releases...")
+        ant.invokeMethod("get", mapOf("src" to url, "dest" to dest, "verbose" to true))
+        logger.lifecycle("✓ Downloaded (${dest.length() / 1024} KB)")
+    }
+}
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+    dependsOn(downloadTiles)
+}
+
 dependencies {
     // Jetpack Compose
     val composeBom = platform("androidx.compose:compose-bom:2023.10.01")
