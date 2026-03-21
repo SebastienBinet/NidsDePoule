@@ -121,6 +121,11 @@ if [ "$1" = "server" ] && [ -n "$2" ]; then
     shift 2
 fi
 
+# Download offline tiles if missing
+echo ""
+echo -e "${YELLOW}Checking offline tiles...${NC}"
+./download-tiles.sh
+
 # Build
 echo ""
 echo -e "${YELLOW}Building debug APK...${NC}"
