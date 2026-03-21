@@ -1,7 +1,10 @@
 package fr.nidsdepoule.app.ui
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Rect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -52,6 +55,10 @@ object OsmTileLoader {
     fun init(context: Context) {
         val store = OfflineTileStore(context)
         offlineStore = store
+        store.onReady = {
+            // Trigger recompose so tiles that failed during init get retried
+            revision.intValue++
+        }
         store.init(scope)
     }
 
@@ -68,12 +75,21 @@ object OsmTileLoader {
         // Try offline store (synchronous, fast SQLite indexed read)
         offlineStore?.let { store ->
             if (store.isReady) {
+                // Direct lookup at requested zoom
                 store.getTileBytes(z, x, y)?.let { bytes ->
                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     if (bitmap != null) {
                         val img = bitmap.asImageBitmap()
                         cache.put(key, img)
                         return img
+                    }
+                }
+                // Overzoom: if z > maxZoom, crop the parent tile at maxZoom
+                if (z > store.maxZoom) {
+                    val overzoomedImg = getOverzoomedTile(store, z, x, y)
+                    if (overzoomedImg != null) {
+                        cache.put(key, overzoomedImg)
+                        return overzoomedImg
                     }
                 }
             }
@@ -86,6 +102,34 @@ object OsmTileLoader {
         }
         scope.launch { fetchTile(key) }
         return null
+    }
+
+    /**
+     * Overzoom: get a parent tile at maxZoom and crop/scale the sub-region
+     * that corresponds to (z, x, y).
+     */
+    private fun getOverzoomedTile(store: OfflineTileStore, z: Int, x: Int, y: Int): ImageBitmap? {
+        val dz = z - store.maxZoom
+        val parentX = x shr dz
+        val parentY = y shr dz
+        val parentBytes = store.getTileBytes(store.maxZoom, parentX, parentY) ?: return null
+        val parentBitmap = BitmapFactory.decodeByteArray(parentBytes, 0, parentBytes.size) ?: return null
+
+        // Which sub-tile within the parent: 0..(2^dz - 1) in each axis
+        val divisions = 1 shl dz
+        val subX = x - (parentX shl dz)
+        val subY = y - (parentY shl dz)
+        val subSize = TILE_SIZE / divisions
+        val srcLeft = subX * subSize
+        val srcTop = subY * subSize
+        val srcRect = Rect(srcLeft, srcTop, srcLeft + subSize, srcTop + subSize)
+        val dstRect = Rect(0, 0, TILE_SIZE, TILE_SIZE)
+
+        val result = Bitmap.createBitmap(TILE_SIZE, TILE_SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        canvas.drawBitmap(parentBitmap, srcRect, dstRect, null)
+        parentBitmap.recycle()
+        return result.asImageBitmap()
     }
 
     private suspend fun fetchTile(key: TileKey) {

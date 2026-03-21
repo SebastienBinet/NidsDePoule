@@ -25,6 +25,13 @@ class OfflineTileStore(private val context: Context) {
     private val assetVersion = "2"
     private val assetName = "montreal_tiles.mbtiles"
 
+    /** Maximum zoom level available in the mbtiles file. */
+    var maxZoom: Int = 15
+        private set
+
+    /** Callback invoked on the IO dispatcher when the store becomes ready. */
+    var onReady: (() -> Unit)? = null
+
     /** Start the async copy-from-assets if needed, then open the database. */
     fun init(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
@@ -45,13 +52,26 @@ class OfflineTileStore(private val context: Context) {
                     Log.d("OfflineTileStore", "Copy complete: ${dbFile.length() / 1024} KB")
                 }
 
-                db = SQLiteDatabase.openDatabase(
+                val database = SQLiteDatabase.openDatabase(
                     dbFile.absolutePath,
                     null,
                     SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS,
                 )
+                db = database
+
+                // Read maxzoom from metadata
+                database.rawQuery(
+                    "SELECT value FROM metadata WHERE name='maxzoom'",
+                    null,
+                ).use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        maxZoom = cursor.getString(0).toIntOrNull() ?: 15
+                    }
+                }
+
                 ready.complete(true)
-                Log.d("OfflineTileStore", "Database opened")
+                Log.d("OfflineTileStore", "Database opened, maxZoom=$maxZoom")
+                onReady?.invoke()
             } catch (e: Exception) {
                 Log.e("OfflineTileStore", "Failed to initialize", e)
                 ready.complete(false)
