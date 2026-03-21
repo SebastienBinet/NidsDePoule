@@ -24,7 +24,7 @@ MIN_LON = -73.98
 MAX_LON = -73.47
 
 ZOOM_MIN = 11
-ZOOM_MAX = 15
+ZOOM_MAX = 17
 
 USER_AGENT = "NidsDePoule/1.0 (pothole detection app; tile pack generator)"
 TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -191,6 +191,9 @@ def main():
                 time.sleep(REQUEST_DELAY)
 
     conn.commit()
+    # Checkpoint WAL so the output file is self-contained (no -wal/-shm artifacts)
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+    conn.execute("PRAGMA journal_mode=DELETE;")
     conn.close()
 
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
