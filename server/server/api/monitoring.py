@@ -52,14 +52,29 @@ async def health() -> dict:
         storage_writable = False
 
     snapshot = stats.snapshot()
+
+    from server.main import get_storage
+    storage = get_storage()
+    # Check Firestore probe status if available.
+    firestore_ok = True
+    if hasattr(storage, "probe_status"):
+        probe = storage.probe_status()
+        if probe["probe_ok"] is False:
+            firestore_ok = False
+
+    status = "ok" if firestore_ok else "degraded"
+
     result = {
-        "status": "ok",
+        "status": status,
         "version": "0.1.0",
         "uptime_seconds": snapshot["uptime_seconds"],
         "queue_depth": snapshot["queue_depth"],
         "storage_writable": storage_writable,
         "disk_free_gb": disk_free_gb,
     }
+    if not firestore_ok:
+        result["firestore_probe_ok"] = False
+        result["firestore_probe_error"] = probe["probe_error"]
     result.update(_BUILD_INFO)
     return result
 
@@ -118,6 +133,8 @@ async def debug_storage() -> dict:
         details["max_writes"] = getattr(storage, "_max_writes", 0)
         details["doc_count"] = getattr(storage, "_doc_count", 0)
         details["flush_interval_s"] = getattr(storage, "_flush_interval_s", 0)
+        if hasattr(storage, "probe_status"):
+            details["probe"] = storage.probe_status()
 
     return {
         "version": _VERSION_LABEL,

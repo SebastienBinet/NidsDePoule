@@ -37,6 +37,7 @@ log = structlog.get_logger()
 DEFAULT_MAX_DOCS = 5_000
 DEFAULT_MAX_WRITES = 5_000
 DEFAULT_FLUSH_INTERVAL_S = 300  # 5 minutes
+DEFAULT_PROBE_INTERVAL_S = 60   # 1 minute
 
 
 class FirestoreHitStorage:
@@ -50,6 +51,7 @@ class FirestoreHitStorage:
         max_docs: int = DEFAULT_MAX_DOCS,
         max_writes: int = DEFAULT_MAX_WRITES,
         flush_interval_s: int = DEFAULT_FLUSH_INTERVAL_S,
+        probe_interval_s: int = DEFAULT_PROBE_INTERVAL_S,
     ) -> None:
         import firebase_admin
         from firebase_admin import credentials, firestore
@@ -73,6 +75,8 @@ class FirestoreHitStorage:
         self._doc_count: int = 0
         self._write_count: int = 0
 
+        self._probe_interval_s = probe_interval_s
+
         # In-memory cache: record_id -> hit dict  (individual hits).
         self._cache: dict[int, dict] = {}
 
@@ -80,8 +84,16 @@ class FirestoreHitStorage:
         self._buffer: list[dict] = []
         self._buffer_lock = threading.Lock()
 
+        # Probe status (write+readback health check).
+        self._probe_ok: bool | None = None  # None = never run
+        self._probe_time: float = 0.0
+        self._probe_error: str = ""
+        self._probe_doc_id = "_watchdog_probe"
+
         self._load_cache()
         self._start_flush_timer()
+        if self._probe_interval_s > 0:
+            self._start_probe_timer()
 
     # ------------------------------------------------------------------
     # Bootstrap
@@ -164,6 +176,58 @@ class FirestoreHitStorage:
         except Exception:
             log.error("firestore_timer_flush_failed", exc_info=True)
         self._start_flush_timer()
+
+    # ------------------------------------------------------------------
+    # Periodic write+readback probe (Firestore connectivity watchdog)
+    # ------------------------------------------------------------------
+
+    def _start_probe_timer(self) -> None:
+        self._probe_timer = threading.Timer(self._probe_interval_s, self._run_probe)
+        self._probe_timer.daemon = True
+        self._probe_timer.start()
+
+    def _run_probe(self) -> None:
+        try:
+            self._do_probe()
+        except Exception as exc:
+            self._probe_ok = False
+            self._probe_time = time.time()
+            self._probe_error = str(exc)
+            log.error("firestore_probe_failed", error=str(exc))
+        self._start_probe_timer()
+
+    def _do_probe(self) -> None:
+        """Write a small document to Firestore and read it back."""
+        now_ms = int(time.time() * 1000)
+        probe_data = {"probe_timestamp_ms": now_ms, "probe": True}
+
+        doc_ref = self._db.collection(self._collection).document(self._probe_doc_id)
+        doc_ref.set(probe_data)
+
+        readback = doc_ref.get()
+        if not readback.exists:
+            raise RuntimeError("probe readback: document does not exist")
+        rb_data = readback.to_dict()
+        if rb_data.get("probe_timestamp_ms") != now_ms:
+            raise RuntimeError(
+                f"probe readback mismatch: wrote {now_ms}, "
+                f"got {rb_data.get('probe_timestamp_ms')}"
+            )
+
+        self._probe_ok = True
+        self._probe_time = time.time()
+        self._probe_error = ""
+        log.debug("firestore_probe_ok", timestamp_ms=now_ms)
+
+    def probe_status(self) -> dict:
+        """Return the current probe status for monitoring endpoints."""
+        return {
+            "probe_ok": self._probe_ok,
+            "probe_time": self._probe_time,
+            "probe_age_s": round(time.time() - self._probe_time, 1) if self._probe_time else None,
+            "probe_error": self._probe_error,
+            "probe_interval_s": self._probe_interval_s,
+        }
 
     # ------------------------------------------------------------------
     # Helpers
@@ -294,6 +358,8 @@ class FirestoreHitStorage:
     def shutdown(self) -> None:
         """Flush remaining buffer to Firestore.  Call on SIGTERM / app shutdown."""
         self._timer.cancel()
+        if hasattr(self, "_probe_timer"):
+            self._probe_timer.cancel()
         log.info("firestore_shutdown_flush_starting",
                  buffered_hits=len(self._buffer))
         self.flush()
