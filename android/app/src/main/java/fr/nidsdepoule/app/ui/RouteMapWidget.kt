@@ -164,8 +164,8 @@ fun RouteMapWidget(
         while (zoom > 2) {
             val tileCountX = OsmTileLoader.lonToTileX(maxLon, zoom) -
                     OsmTileLoader.lonToTileX(minLon, zoom) + 1
-            val tileCountY = OsmTileLoader.latToTileY(maxLat, zoom) -
-                    OsmTileLoader.latToTileY(minLat, zoom) + 1
+            val tileCountY = OsmTileLoader.latToTileY(minLat, zoom) -
+                    OsmTileLoader.latToTileY(maxLat, zoom) + 1
             if (tileCountX <= 5 && tileCountY <= 5) break
             zoom--
         }
@@ -372,8 +372,8 @@ fun RouteMapWidget(
                     while (sz > 2) {
                         val tcx = OsmTileLoader.lonToTileX(defaultMaxLon, sz) -
                                 OsmTileLoader.lonToTileX(defaultMinLon, sz) + 1
-                        val tcy = OsmTileLoader.latToTileY(defaultMaxLat, sz) -
-                                OsmTileLoader.latToTileY(defaultMinLat, sz) + 1
+                        val tcy = OsmTileLoader.latToTileY(defaultMinLat, sz) -
+                                OsmTileLoader.latToTileY(defaultMaxLat, sz) + 1
                         if (tcx <= 5 && tcy <= 5) break
                         sz--
                     }

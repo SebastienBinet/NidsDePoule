@@ -35,7 +35,9 @@ class HitProcessor:
         self._queue = queue
         self._storage = storage
         self._stats = stats
-        self._next_record_id = 1_000_000
+        # Seed record_id from current time (ms) to avoid collisions across
+        # server restarts.  The low 3 digits are a per-restart counter.
+        self._next_record_id = int(time.time() * 1000) * 1000
 
     async def process_message(self, msg: ClientMessageData, size_bytes: int) -> tuple[bool, str, int]:
         """Process a client message. Returns (accepted, error_message, hits_stored)."""
