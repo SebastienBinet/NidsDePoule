@@ -158,19 +158,7 @@ fun RouteMapWidget(
     val minLon = animMinLon.toDouble()
     val maxLon = animMaxLon.toDouble()
 
-    // Pick zoom level: find z where the viewport fits within ~5 tiles
-    val z = run {
-        var zoom = 18
-        while (zoom > 2) {
-            val tileCountX = OsmTileLoader.lonToTileX(maxLon, zoom) -
-                    OsmTileLoader.lonToTileX(minLon, zoom) + 1
-            val tileCountY = OsmTileLoader.latToTileY(minLat, zoom) -
-                    OsmTileLoader.latToTileY(maxLat, zoom) + 1
-            if (tileCountX <= 5 && tileCountY <= 5) break
-            zoom--
-        }
-        zoom
-    }
+    val z = OsmTileLoader.fitZoom(minLat, maxLat, minLon, maxLon)
 
     // Compute tile range (with 1-tile padding)
     val minTileX = OsmTileLoader.lonToTileX(minLon, z) - 1
@@ -367,18 +355,7 @@ fun RouteMapWidget(
                 // animated bounds. This keeps the cross count constant and
                 // small regardless of the current animation frame.
                 val crossC = crossColor.copy(alpha = 0.8f)
-                val stableZ = run {
-                    var sz = 18
-                    while (sz > 2) {
-                        val tcx = OsmTileLoader.lonToTileX(defaultMaxLon, sz) -
-                                OsmTileLoader.lonToTileX(defaultMinLon, sz) + 1
-                        val tcy = OsmTileLoader.latToTileY(defaultMinLat, sz) -
-                                OsmTileLoader.latToTileY(defaultMaxLat, sz) + 1
-                        if (tcx <= 5 && tcy <= 5) break
-                        sz--
-                    }
-                    sz
-                }
+                val stableZ = OsmTileLoader.fitZoom(defaultMinLat, defaultMaxLat, defaultMinLon, defaultMaxLon)
                 val arm = when {
                     stableZ >= 15 -> 8f
                     stableZ >= 12 -> 5f

@@ -35,6 +35,7 @@ object OsmTileLoader {
     var onTileBytes: ((bytesReceived: Int) -> Unit)? = null
 
     private val cache = LruCache<TileKey, ImageBitmap>(MAX_TILES)
+    private val parentCache = LruCache<TileKey, Bitmap>(8)
     private val inflight = mutableSetOf<TileKey>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val semaphore = kotlinx.coroutines.sync.Semaphore(MAX_CONCURRENT)
@@ -121,9 +122,13 @@ object OsmTileLoader {
         val dz = z - store.maxZoom
         val parentX = x shr dz
         val parentY = y shr dz
-        val parentBytes = store.getTileBytes(store.maxZoom, parentX, parentY) ?: return null
-        val parentBitmap = BitmapFactory.decodeByteArray(parentBytes, 0, parentBytes.size)
-            ?: return null
+        val parentKey = TileKey(store.maxZoom, parentX, parentY)
+        val parentBitmap = parentCache.get(parentKey) ?: run {
+            val bytes = store.getTileBytes(store.maxZoom, parentX, parentY) ?: return null
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            parentCache.put(parentKey, bmp)
+            bmp
+        }
 
         val pw = parentBitmap.width
         val ph = parentBitmap.height
@@ -144,7 +149,6 @@ object OsmTileLoader {
         val result = Bitmap.createBitmap(TILE_SIZE, TILE_SIZE, Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(result)
         canvas.drawBitmap(parentBitmap, srcRect, dstRect, null)
-        parentBitmap.recycle()
         return result.asImageBitmap()
     }
 
@@ -177,6 +181,20 @@ object OsmTileLoader {
             synchronized(inflight) { inflight.remove(key) }
             semaphore.release()
         }
+    }
+
+    /**
+     * Find the highest zoom where the bounding box fits within [maxTiles] tiles per axis.
+     */
+    fun fitZoom(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double, maxTiles: Int = 5): Int {
+        var zoom = 18
+        while (zoom > 2) {
+            val tileCountX = lonToTileX(maxLon, zoom) - lonToTileX(minLon, zoom) + 1
+            val tileCountY = latToTileY(minLat, zoom) - latToTileY(maxLat, zoom) + 1
+            if (tileCountX <= maxTiles && tileCountY <= maxTiles) break
+            zoom--
+        }
+        return zoom
     }
 
     // --- Tile math (Web Mercator / Slippy Map) ---
