@@ -37,7 +37,7 @@ log = structlog.get_logger()
 DEFAULT_MAX_DOCS = 5_000
 DEFAULT_MAX_WRITES = 5_000
 DEFAULT_FLUSH_INTERVAL_S = 300  # 5 minutes
-DEFAULT_PROBE_INTERVAL_S = 60   # 1 minute
+DEFAULT_PROBE_INTERVAL_S = 300  # 5 minutes
 
 
 class FirestoreHitStorage:
@@ -89,6 +89,7 @@ class FirestoreHitStorage:
         self._probe_time: float = 0.0
         self._probe_error: str = ""
         self._probe_doc_id = "_watchdog_probe"
+        self._probe_timer: threading.Timer | None = None
 
         self._load_cache()
         self._start_flush_timer()
@@ -198,11 +199,14 @@ class FirestoreHitStorage:
 
     def _do_probe(self) -> None:
         """Write a small document to Firestore and read it back."""
+        if self._writes_exhausted():
+            return
         now_ms = int(time.time() * 1000)
         probe_data = {"probe_timestamp_ms": now_ms, "probe": True}
 
         doc_ref = self._db.collection(self._collection).document(self._probe_doc_id)
         doc_ref.set(probe_data)
+        self._write_count += 1
 
         readback = doc_ref.get()
         if not readback.exists:
@@ -346,7 +350,6 @@ class FirestoreHitStorage:
             .limit(1)
         )
         for doc in query.stream():
-            # Remove the individual hits from cache.
             data = doc.to_dict()
             for h in data.get("hits", []):
                 self._cache.pop(h.get("record_id", 0), None)
@@ -358,7 +361,7 @@ class FirestoreHitStorage:
     def shutdown(self) -> None:
         """Flush remaining buffer to Firestore.  Call on SIGTERM / app shutdown."""
         self._timer.cancel()
-        if hasattr(self, "_probe_timer"):
+        if self._probe_timer is not None:
             self._probe_timer.cancel()
         log.info("firestore_shutdown_flush_starting",
                  buffered_hits=len(self._buffer))
