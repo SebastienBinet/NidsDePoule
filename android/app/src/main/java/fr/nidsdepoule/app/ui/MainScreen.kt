@@ -89,6 +89,9 @@ fun MainScreen(
     mfccExtractor: MfccExtractor? = null,
     // Voice match overlay (dev mode)
     voiceMatchScores: Map<String, Float> = emptyMap(),
+    // CSV recording (dev mode)
+    isCsvRecording: Boolean = false,
+    onToggleCsvRecording: () -> Unit = {},
 ) {
     // Voice training dialog
     if (showVoiceTraining && profileStore != null && mfccExtractor != null) {
@@ -250,17 +253,34 @@ fun MainScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            Button(
-                onClick = onToggleSimulation,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isSimulating) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
-                ),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    text = if (isSimulating) "Stop Simulation" else "Simulate (Cemetery Circuit)",
-                    fontSize = 13.sp,
-                )
+                Button(
+                    onClick = onToggleSimulation,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSimulating) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
+                    ),
+                ) {
+                    Text(
+                        text = if (isSimulating) "Stop Sim" else "Simulate",
+                        fontSize = 13.sp,
+                    )
+                }
+                Button(
+                    onClick = onToggleCsvRecording,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isCsvRecording) Color(0xFFF44336) else MaterialTheme.colorScheme.primary,
+                    ),
+                ) {
+                    Text(
+                        text = if (isCsvRecording) "Stop REC" else "REC CSV",
+                        fontSize = 13.sp,
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(4.dp))
             // Server URL — read-only, tap to copy

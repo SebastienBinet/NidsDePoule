@@ -9,8 +9,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import fr.nidsdepoule.app.store.DevicePosStore
+import fr.nidsdepoule.app.detection.AccelCsvRecorder
 import fr.nidsdepoule.app.detection.AccelRecorder
 import fr.nidsdepoule.app.detection.HitEvent
+import fr.nidsdepoule.app.detection.PeakFinder
 import fr.nidsdepoule.app.detection.ReportSource
 import fr.nidsdepoule.app.reporting.CategoryBytes
 import fr.nidsdepoule.app.reporting.DataCategory
@@ -68,6 +70,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Core modules ---
     private val accelRecorder = AccelRecorder().also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms accelRecorder") }
     val accelBuffer = AccelerationBuffer()
+    val csvRecorder = AccelCsvRecorder(application)
     private val dataUsageTracker = DataUsageTracker()
     private val voiceFeedback = VoiceFeedback(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceFeedback") }
     val voiceCommandListener = VoiceCommandListener(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceCommandListener") }
@@ -99,6 +102,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val locationHistory = ArrayDeque<LocationReading>(100)
     private var lastLocation: LocationReading? = null
 
+    // --- Duplicate peak prevention ---
+    /** Timestamps of peaks already reported, to prevent multiple AYOYEs sending the same peak. */
+    private val reportedPeakTimestamps = mutableSetOf<Long>()
+
     // --- Observable UI state ---
     var currentSpeedMps by mutableStateOf(0f)
         private set
@@ -121,6 +128,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isSimulating by mutableStateOf(false)
         private set
     var voiceMuted by mutableStateOf(false)
+        private set
+    var isCsvRecording by mutableStateOf(false)
         private set
 
     // Counter for throttling graph updates (~5 Hz at 50 Hz sensor rate)
@@ -198,8 +207,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Buffer for graph display
                 accelBuffer.add(timestamp, magnitudeMg)
 
-                // Buffer for Hit waveform capture
-                accelRecorder.addReading(timestamp, magnitudeMg)
+                // Buffer for Hit waveform capture (with per-axis data)
+                accelRecorder.addReading(timestamp, magnitudeMg, x, y, z)
+
+                // CSV recording for test vector generation (dev mode)
+                if (csvRecorder.isRecording) {
+                    csvRecorder.addSample(timestamp, x, y, z, magnitudeMg)
+                }
 
                 // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
                 accelSampleCounter++
@@ -244,6 +258,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         lastLocation = reading
         currentSpeedMps = reading.speedMps
         hitReporter.lastKnownLocation = reading
+        csvRecorder.updateLocation(reading)
 
         // Check proximity to known potholes
         checkPotholeProximity(reading)
@@ -309,6 +324,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         voiceMuted = !voiceMuted
     }
 
+    /** Toggle CSV recording (dev mode only). Returns file path when stopping, null when starting. */
+    fun toggleCsvRecording(): String? {
+        return if (csvRecorder.isRecording) {
+            val path = csvRecorder.stop()
+            isCsvRecording = false
+            path
+        } else {
+            csvRecorder.start()
+            isCsvRecording = csvRecorder.isRecording
+            null
+        }
+    }
+
     /** Toggle between real GPS and cemetery circuit simulation. */
     fun toggleSimulation() {
         if (!isRunning) return
@@ -370,7 +398,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sendReport(event, location, "AYOYE !?!#\$!", fromVoice = fromVoice)
     }
 
-    /** Build a HitEvent from the last 30 seconds of accelerometer data. */
+    /** Build a HitEvent from the last 30 seconds of accelerometer data.
+     *  Uses PeakFinder to find the tallest unreported peak (prevents duplicates). */
     private fun buildHitEvent(): HitEvent {
         val readings = accelRecorder.recentReadings(30_000)
         if (readings.isEmpty()) {
@@ -384,33 +413,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        // Find peak magnitude in the captured window.
-        var peakIdx = 0
-        var peakMag = 0
-        for ((i, r) in readings.withIndex()) {
-            if (r.magnitudeMg > peakMag) { peakMag = r.magnitudeMg; peakIdx = i }
+        // Evict reported peaks older than 30s
+        val cutoff = System.currentTimeMillis() - 30_000
+        reportedPeakTimestamps.removeAll { it < cutoff }
+
+        // Use PeakFinder to find the tallest unreported peak
+        val peaks = PeakFinder.findPeaks(
+            readings = readings,
+            minProminenceMg = 50,
+            minSeparationMs = 500,
+            excludeTimestamps = reportedPeakTimestamps,
+        )
+
+        // If PeakFinder found a peak, use it; otherwise fallback to global max
+        val peakIdx: Int
+        val peakMag: Int
+        if (peaks.isNotEmpty()) {
+            val best = peaks.first() // sorted by magnitude descending
+            peakIdx = best.index
+            peakMag = best.magnitudeMg
+            reportedPeakTimestamps.add(best.timestamp)
+        } else {
+            // Fallback: global maximum (all peaks already reported or below threshold)
+            var idx = 0
+            var mag = 0
+            for ((i, r) in readings.withIndex()) {
+                if (r.magnitudeMg > mag) { mag = r.magnitudeMg; idx = i }
+            }
+            peakIdx = idx
+            peakMag = mag
+            reportedPeakTimestamps.add(readings[peakIdx].timestamp)
         }
 
         // Extract waveform (up to 150 samples centered on peak).
         val half = 75
         val start = maxOf(0, peakIdx - half)
         val end = minOf(readings.size, peakIdx + half)
-        val waveform = readings.subList(start, end).map { it.magnitudeMg }
+        val waveformWindow = readings.subList(start, end)
+        val waveform = waveformWindow.map { it.magnitudeMg }
+        val waveformLateral = waveformWindow.map { it.xMg }
 
         // Baseline = median magnitude.
         val sorted = readings.map { it.magnitudeMg }.sorted()
         val baseline = sorted[sorted.size / 2]
         val ratio = if (baseline > 0) (peakMag.toDouble() / baseline * 100).toInt() else 0
-        val duration = (readings.last().timestamp - readings.first().timestamp).toInt()
+
+        // FIX: duration_ms from waveform window, not full 30s buffer
+        val duration = if (waveformWindow.size >= 2) {
+            (waveformWindow.last().timestamp - waveformWindow.first().timestamp).toInt()
+        } else 0
+
+        // Peak lateral = max absolute x-axis value in the waveform window
+        val peakLateral = waveformWindow.maxOfOrNull { kotlin.math.abs(it.xMg) } ?: 0
 
         return HitEvent(
             timestampMs = readings[peakIdx].timestamp,
             peakVerticalMg = peakMag,
-            peakLateralMg = 0,
+            peakLateralMg = peakLateral,
             durationMs = duration,
             severity = 3,
             waveformVertical = waveform,
-            waveformLateral = emptyList(),
+            waveformLateral = waveformLateral,
             baselineMg = baseline,
             peakToBaselineRatio = ratio,
             source = ReportSource.HIT,

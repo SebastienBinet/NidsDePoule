@@ -7,6 +7,9 @@ package fr.nidsdepoule.app.detection
 data class AccelReading(
     val timestamp: Long,
     val magnitudeMg: Int,
+    val xMg: Int = 0,
+    val yMg: Int = 0,
+    val zMg: Int = 0,
 )
 
 /**
@@ -21,8 +24,8 @@ class AccelRecorder(
     private val buffer = mutableListOf<AccelReading>()
 
     /** Buffer an accelerometer reading. Call at ~50 Hz. */
-    fun addReading(timestamp: Long, magnitudeMg: Int) {
-        buffer.add(AccelReading(timestamp, magnitudeMg))
+    fun addReading(timestamp: Long, magnitudeMg: Int, xMg: Int = 0, yMg: Int = 0, zMg: Int = 0) {
+        buffer.add(AccelReading(timestamp, magnitudeMg, xMg, yMg, zMg))
         if (buffer.size > bufferSize) {
             buffer.removeAt(0)
         }
