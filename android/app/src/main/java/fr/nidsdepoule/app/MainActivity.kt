@@ -122,6 +122,11 @@ class MainActivity : ComponentActivity() {
                         // CSV recording
                         isCsvRecording = viewModel.isCsvRecording,
                         onToggleCsvRecording = { viewModel.toggleCsvRecording() },
+                        // Detection state
+                        mountType = viewModel.mountType,
+                        movingType = viewModel.movingType,
+                        dataUsageMode = viewModel.dataUsageMode,
+                        onDataUsageModeTap = { viewModel.cycleDataUsageMode() },
                     )
                 }
             }

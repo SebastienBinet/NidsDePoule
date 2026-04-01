@@ -11,7 +11,11 @@ import androidx.lifecycle.AndroidViewModel
 import fr.nidsdepoule.app.store.DevicePosStore
 import fr.nidsdepoule.app.detection.AccelCsvRecorder
 import fr.nidsdepoule.app.detection.AccelRecorder
+import fr.nidsdepoule.app.detection.AutoDetector
+import fr.nidsdepoule.app.detection.DataUsageMode
 import fr.nidsdepoule.app.detection.HitEvent
+import fr.nidsdepoule.app.detection.MountType
+import fr.nidsdepoule.app.detection.MovingType
 import fr.nidsdepoule.app.detection.PeakFinder
 import fr.nidsdepoule.app.detection.ReportSource
 import fr.nidsdepoule.app.reporting.CategoryBytes
@@ -71,6 +75,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val accelRecorder = AccelRecorder().also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms accelRecorder") }
     val accelBuffer = AccelerationBuffer()
     val csvRecorder = AccelCsvRecorder(application)
+    val autoDetector = AutoDetector()
     private val dataUsageTracker = DataUsageTracker()
     private val voiceFeedback = VoiceFeedback(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceFeedback") }
     val voiceCommandListener = VoiceCommandListener(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceCommandListener") }
@@ -130,6 +135,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var voiceMuted by mutableStateOf(false)
         private set
     var isCsvRecording by mutableStateOf(false)
+        private set
+    var mountType by mutableStateOf(MountType.UNKNOWN)
+        private set
+    var movingType by mutableStateOf(MovingType.UNKNOWN)
+        private set
+    var dataUsageMode by mutableStateOf(
+        DataUsageMode.entries.getOrNull(
+            prefs.getInt("data_usage_mode", DataUsageMode.UNLIMITED.ordinal)
+        ) ?: DataUsageMode.UNLIMITED
+    )
         private set
 
     // Counter for throttling graph updates (~5 Hz at 50 Hz sensor rate)
@@ -215,13 +230,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     csvRecorder.addSample(timestamp, x, y, z, magnitudeMg)
                 }
 
-                // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
+                // Feed AutoDetector for mount/moving state + auto-detection
+                val reading = fr.nidsdepoule.app.detection.AccelReading(timestamp, magnitudeMg, x, y, z)
+                autoDetector.addReading(reading, currentSpeedMps)
+
+                // Propagate state changes to UI (~5Hz, same as graph)
                 accelSampleCounter++
                 if (accelSampleCounter >= 10) {
                     accelSampleCounter = 0
                     accelSamples = accelBuffer.snapshot(step = 4)
+                    mountType = autoDetector.mountType
+                    movingType = autoDetector.movingType
                 }
             })
+        }
+
+        // Wire AutoDetector auto-detection callback
+        autoDetector.onDetection = { event ->
+            onAutoDetection(event)
         }
 
         // Start GPS (real or simulated)
@@ -259,6 +285,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         currentSpeedMps = reading.speedMps
         hitReporter.lastKnownLocation = reading
         csvRecorder.updateLocation(reading)
+        autoDetector.updateSpeed(reading.speedMps, reading.timestampMs)
 
         // Check proximity to known potholes
         checkPotholeProximity(reading)
@@ -335,6 +362,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isCsvRecording = csvRecorder.isRecording
             null
         }
+    }
+
+    /** Cycle through data usage modes. Persisted to SharedPreferences. */
+    fun cycleDataUsageMode() {
+        val modes = DataUsageMode.entries
+        val nextIdx = (dataUsageMode.ordinal + 1) % modes.size
+        dataUsageMode = modes[nextIdx]
+        prefs.edit().putInt("data_usage_mode", dataUsageMode.ordinal).apply()
+    }
+
+    /** Handle automatic pothole detection from AutoDetector. */
+    private fun onAutoDetection(event: AutoDetector.DetectionEvent) {
+        val location = lastLocation ?: return
+
+        val hitEvent = buildHitEvent().copy(
+            source = ReportSource.AUTO,
+            severity = 2, // auto-detected = lower confidence than manual
+        )
+        hitsDetected++
+
+        // Interpolate GPS at the detection timestamp
+        val peakLocation = interpolateLocation(event.timestamp) ?: location
+        addMapMarker(peakLocation, MapMarkerType.HIT)
+        sendReport(hitEvent, peakLocation, "AUTO")
     }
 
     /** Toggle between real GPS and cemetery circuit simulation. */
