@@ -85,7 +85,7 @@ class AutoDetector {
         }
 
         // Skip detection if suppressed
-        if (movingType == MovingType.JUST_PARKED || movingType == MovingType.NOT_IN_CAR) return
+        if (movingType != MovingType.DRIVING) return  // only detect while confirmed driving
         if (speedMps < MIN_SPEED_MPS) return
         if (reading.timestamp - lastDetectionMs < DEBOUNCE_MS) return
 
@@ -95,6 +95,11 @@ class AutoDetector {
             val mean = rollingSum / n
             val variance = rollingSumSq / n - mean * mean
             val stddev = if (variance > 0) sqrt(variance) else 1.0
+
+            // Minimum absolute magnitude to prevent noise on a still phone triggering
+            // (very low stddev makes even tiny readings look like high z-scores)
+            if (reading.magnitudeMg < MIN_ABSOLUTE_MG) return
+
             val zScore = (reading.magnitudeMg - mean) / stddev
 
             val threshold = when (mountType) {
@@ -270,6 +275,11 @@ class AutoDetector {
 
         // Speed gate
         private const val MIN_SPEED_MPS = 2f
+
+        // Minimum absolute magnitude (mg) to consider a reading as a potential hit.
+        // Prevents sensor noise on a still phone from triggering (noise ~5mg with
+        // very low stddev gives artificially high z-scores).
+        private const val MIN_ABSOLUTE_MG = 50
 
         // Z-score thresholds per mount type
         private const val Z_THRESHOLD_MOUNTED = 3.5

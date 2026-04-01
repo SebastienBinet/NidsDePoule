@@ -56,7 +56,7 @@ data class MapMarkerData(
 )
 
 /** How many seconds ahead of travel the map should cover. */
-const val MAP_LOOKAHEAD_SECONDS = 60f
+const val MAP_LOOKAHEAD_SECONDS = 30f
 
 /** Montreal island bounding box (approx). */
 private const val MONTREAL_MIN_LAT = 45.40
