@@ -226,17 +226,37 @@ class HitReporter(
     private var potholesTimer: Timer? = null
     var onPotholesFetched: ((List<MapMarkerData>) -> Unit)? = null
 
+    /** Current polling interval — adapts based on driving state. */
+    var pollIntervalMs: Long = POLL_INTERVAL_IDLE_MS
+        private set
+
     /** Start periodically fetching pothole positions from the server. */
     fun startPotholesFetch() {
         stopPotholesFetch()
-        // Fetch immediately, then every 30 seconds
+        // Fetch immediately, then schedule adaptive polling
         scope.launch { fetchPotholes() }
+        schedulePotholePoll()
+    }
+
+    private fun schedulePotholePoll() {
+        potholesTimer?.cancel()
         potholesTimer = Timer("potholes", true).apply {
             scheduleAtFixedRate(object : TimerTask() {
                 override fun run() {
                     scope.launch { fetchPotholes() }
                 }
-            }, POTHOLES_INTERVAL_MS, POTHOLES_INTERVAL_MS)
+            }, pollIntervalMs, pollIntervalMs)
+        }
+    }
+
+    /** Update polling interval based on driving state. Call when speed changes significantly. */
+    fun updatePollInterval(isDriving: Boolean) {
+        val newInterval = if (isDriving) POLL_INTERVAL_DRIVING_MS else POLL_INTERVAL_IDLE_MS
+        if (newInterval != pollIntervalMs) {
+            pollIntervalMs = newInterval
+            if (potholesTimer != null) {
+                schedulePotholePoll()
+            }
         }
     }
 
@@ -264,11 +284,17 @@ class HitReporter(
                 val lat = coords.getDouble(1)
                 val props = feature.getJSONObject("properties")
                 val lastSeenMs = props.optLong("last_seen_ms", 0)
+                val bearingAvg = if (props.has("bearing_avg") && !props.isNull("bearing_avg")) {
+                    props.getDouble("bearing_avg").toFloat()
+                } else null
+                val classification = props.optString("classification", "pothole")
                 markers.add(MapMarkerData(
                     latMicrodeg = (lat * 1_000_000).toInt(),
                     lonMicrodeg = (lon * 1_000_000).toInt(),
                     type = MapMarkerType.SERVER,
                     timestampMs = lastSeenMs,
+                    bearingAvg = bearingAvg,
+                    classification = classification,
                 ))
             }
             onPotholesFetched?.invoke(markers)
@@ -280,7 +306,9 @@ class HitReporter(
     companion object {
         /** Heartbeat interval in milliseconds (0.5 seconds). */
         const val HEARTBEAT_INTERVAL_MS = 500L
-        /** Potholes fetch interval in milliseconds (30 seconds). */
-        const val POTHOLES_INTERVAL_MS = 30_000L
+        /** Polling interval when driving (10 seconds — fast updates for real-time propagation). */
+        const val POLL_INTERVAL_DRIVING_MS = 10_000L
+        /** Polling interval when idle/stopped (60 seconds — save bandwidth). */
+        const val POLL_INTERVAL_IDLE_MS = 60_000L
     }
 }

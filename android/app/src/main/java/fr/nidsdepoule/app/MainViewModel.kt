@@ -287,6 +287,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         csvRecorder.updateLocation(reading)
         autoDetector.updateSpeed(reading.speedMps, reading.timestampMs)
 
+        // Update polling interval based on driving state
+        hitReporter.updatePollInterval(autoDetector.movingType == MovingType.DRIVING)
+
         // Check proximity to known potholes
         checkPotholeProximity(reading)
 
@@ -598,9 +601,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val now = System.currentTimeMillis()
         if (now - lastProximityAlertMs < 5_000) return  // Cooldown
 
+        val currentBearing = reading.bearingDeg
+
         for (marker in serverMarkers) {
             val key = marker.latMicrodeg.toLong() * 1_000_000L + marker.lonMicrodeg
             if (key in warnedPotholes) continue
+
+            // Direction filtering: skip potholes from the opposite direction
+            val markerBearing = marker.bearingAvg
+            if (markerBearing != null && currentBearing != 0f) {
+                val bearingDiff = kotlin.math.abs(normalizeAngle(currentBearing - markerBearing))
+                if (bearingDiff > 90f) continue  // opposite direction, skip
+            }
 
             val lat2 = marker.latMicrodeg / 1_000_000.0
             val lon2 = marker.lonMicrodeg / 1_000_000.0
@@ -757,6 +769,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val x = Math.cos(Math.toRadians(lat1)) * Math.sin(Math.toRadians(lat2)) -
                     Math.sin(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.cos(dLon)
             return ((Math.toDegrees(Math.atan2(y, x)) + 360) % 360).toFloat()
+        }
+
+        /** Normalize angle difference to [-180, 180]. */
+        fun normalizeAngle(deg: Float): Float {
+            var a = deg % 360f
+            if (a > 180f) a -= 360f
+            if (a < -180f) a += 360f
+            return a
         }
     }
 }

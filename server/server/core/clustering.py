@@ -3,6 +3,11 @@
 Uses a greedy spatial clustering approach: for each hit, find the nearest
 existing cluster within CLUSTER_RADIUS_M. If found, merge; otherwise create
 a new cluster.
+
+GPS accuracy weighting: hits with better accuracy contribute more to the
+centroid position. Weight = 1 / max(accuracy_m, 3).
+
+Bearing tracking: average bearing stored per cluster for direction filtering.
 """
 
 from __future__ import annotations
@@ -27,6 +32,15 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * _EARTH_R * math.asin(math.sqrt(a))
 
 
+def _circular_mean_deg(angles: list[float]) -> float | None:
+    """Compute the circular mean of angles in degrees. Returns None if empty."""
+    if not angles:
+        return None
+    sin_sum = sum(math.sin(math.radians(a)) for a in angles)
+    cos_sum = sum(math.cos(math.radians(a)) for a in angles)
+    return math.degrees(math.atan2(sin_sum, cos_sum)) % 360
+
+
 @dataclass
 class PotholeCluster:
     lat: float = 0.0
@@ -40,18 +54,26 @@ class PotholeCluster:
     devices: set[str] = field(default_factory=set)
     manual_reports: int = 0
     sources: dict[str, int] = field(default_factory=dict)
+    bearings: list[float] = field(default_factory=list)
 
-    # Running sums for centroid update.
-    _lat_sum: float = 0.0
-    _lon_sum: float = 0.0
+    # Running weighted sums for GPS-accuracy-weighted centroid.
+    _lat_wsum: float = 0.0
+    _lon_wsum: float = 0.0
+    _weight_sum: float = 0.0
 
     def add_hit(self, lat: float, lon: float, severity: int, peak_mg: int,
-                timestamp_ms: int, device_id: str, source: str = "auto") -> None:
+                timestamp_ms: int, device_id: str, source: str = "auto",
+                accuracy_m: int = 0, bearing_deg: float = 0.0) -> None:
         self.hit_count += 1
-        self._lat_sum += lat
-        self._lon_sum += lon
-        self.lat = self._lat_sum / self.hit_count
-        self.lon = self._lon_sum / self.hit_count
+
+        # GPS accuracy weighting: better accuracy = higher weight
+        weight = 1.0 / max(accuracy_m, 3)
+        self._lat_wsum += lat * weight
+        self._lon_wsum += lon * weight
+        self._weight_sum += weight
+        self.lat = self._lat_wsum / self._weight_sum
+        self.lon = self._lon_wsum / self._weight_sum
+
         self.severity_sum += severity
         self.severity_max = max(self.severity_max, severity)
         self.peak_mg_max = max(self.peak_mg_max, peak_mg)
@@ -63,10 +85,25 @@ class PotholeCluster:
         self.sources[source] = self.sources.get(source, 0) + 1
         if source != "auto":
             self.manual_reports += 1
+        if bearing_deg != 0.0:
+            self.bearings.append(bearing_deg)
 
     @property
     def severity_avg(self) -> float:
         return self.severity_sum / self.hit_count if self.hit_count else 0
+
+    @property
+    def bearing_avg(self) -> float | None:
+        return _circular_mean_deg(self.bearings)
+
+    @property
+    def classification(self) -> str:
+        """Classify as 'pothole' or 'infrastructure' based on hit patterns."""
+        if len(self.devices) >= 5 and self.hit_count >= 10:
+            hit_rate = self.hit_count / max(len(self.devices), 1)
+            if hit_rate >= 3.0 and self.severity_max <= 2:
+                return "infrastructure"
+        return "pothole"
 
     @property
     def confidence(self) -> float:
@@ -79,6 +116,7 @@ class PotholeCluster:
         return round(min(base, 1.0), 2)
 
     def to_geojson_feature(self) -> dict:
+        bearing = self.bearing_avg
         return {
             "type": "Feature",
             "geometry": {
@@ -96,6 +134,9 @@ class PotholeCluster:
                 "last_seen_ms": self.last_seen_ms,
                 "manual_reports": self.manual_reports,
                 "sources": dict(self.sources),
+                "bearing_avg": round(bearing, 1) if bearing is not None else None,
+                "bearing_count": len(self.bearings),
+                "classification": self.classification,
             },
         }
 
@@ -125,21 +166,28 @@ def cluster_hits(raw_hits: list[dict], radius_m: float = CLUSTER_RADIUS_M) -> li
         timestamp_ms = hit.get("timestamp_ms", 0)
         device_id = record.get("device_id", "")
         source = record.get("source", "auto")
+        accuracy_m = loc.get("accuracy_m", 0) or 0
+        bearing_deg = hit.get("bearing_deg", 0.0) or 0.0
+
+        # Effective radius accounts for GPS inaccuracy
+        effective_radius = radius_m + (accuracy_m * 0.5 if accuracy_m else 0)
 
         # Find nearest cluster.
         best_cluster = None
-        best_dist = radius_m + 1
+        best_dist = effective_radius + 1
         for c in clusters:
             d = _haversine_m(lat, lon, c.lat, c.lon)
             if d < best_dist:
                 best_dist = d
                 best_cluster = c
 
-        if best_cluster is not None and best_dist <= radius_m:
-            best_cluster.add_hit(lat, lon, severity, peak_mg, timestamp_ms, device_id, source)
+        if best_cluster is not None and best_dist <= effective_radius:
+            best_cluster.add_hit(lat, lon, severity, peak_mg, timestamp_ms,
+                                 device_id, source, accuracy_m, bearing_deg)
         else:
             c = PotholeCluster()
-            c.add_hit(lat, lon, severity, peak_mg, timestamp_ms, device_id, source)
+            c.add_hit(lat, lon, severity, peak_mg, timestamp_ms,
+                       device_id, source, accuracy_m, bearing_deg)
             clusters.append(c)
 
     return clusters
