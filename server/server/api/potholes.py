@@ -73,6 +73,14 @@ async def get_potholes(
     try:
         raw_hits = get_storage().read_all_hits()
         clusters = cluster_hits(raw_hits)
+
+        # Update device reputations from clustering results
+        from server.main import get_reputation
+        try:
+            get_reputation().update_from_clusters(clusters)
+        except Exception:
+            pass  # reputation is best-effort
+
         if since is not None:
             clusters = [c for c in clusters if c.last_seen_ms > since]
         geojson = clusters_to_geojson(clusters)

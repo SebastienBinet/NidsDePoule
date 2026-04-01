@@ -61,8 +61,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Configuration ---
     private val t0 = System.currentTimeMillis().also { Log.d(TAG_INIT, "ViewModel constructor START") }
     private val prefs = application.getSharedPreferences("nidsdepoule", Context.MODE_PRIVATE)
-    val deviceId: String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
+    /** Persistent device ID (default). Used for reputation scoring on the server. */
+    private val persistentDeviceId: String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("device_id", it).apply()
+    }
+
+    /** Privacy mode: rotate device_id daily via SHA-256 hash. Opt-in, reduces reputation accuracy. */
+    var privacyMode by mutableStateOf(prefs.getBoolean("privacy_mode", false))
+        private set
+
+    /** Effective device ID: persistent or daily-rotated depending on privacy mode. */
+    val deviceId: String get() = if (privacyMode) {
+        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest("$persistentDeviceId:$dateStr".toByteArray())
+            .take(16).joinToString("") { "%02x".format(it) }
+    } else {
+        persistentDeviceId
     }
     val appVersion: Int = try {
         application.packageManager.getPackageInfo(application.packageName, 0).longVersionCode.toInt()
@@ -110,6 +125,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Duplicate peak prevention ---
     /** Timestamps of peaks already reported, to prevent multiple AYOYEs sending the same peak. */
     private val reportedPeakTimestamps = mutableSetOf<Long>()
+
+    // --- Debug baseline capture ---
+    /** When non-zero, we're capturing baseline g-records until this timestamp. */
+    private var baselineCaptureEndMs = 0L
+    /** Minimum accumulated-G seen during baseline capture, and the corresponding waveform. */
+    private var baselineMinAccumG = Int.MAX_VALUE
+    private var baselineMinWaveform: List<Int> = emptyList()
+    private var baselineMinMedian = 0
+    private var baselineMinTimestamp = 0L
+    private var lastBaselineCheckMs = 0L
 
     // --- Observable UI state ---
     var currentSpeedMps by mutableStateOf(0f)
@@ -241,6 +266,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     accelSamples = accelBuffer.snapshot(step = 4)
                     mountType = autoDetector.mountType
                     movingType = autoDetector.movingType
+
+                    // Check baseline capture (dev mode, every 30s)
+                    if (baselineCaptureEndMs > 0) {
+                        checkBaselineCapture(timestamp)
+                    }
                 }
             })
         }
@@ -365,6 +395,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isCsvRecording = csvRecorder.isRecording
             null
         }
+    }
+
+    /** Toggle privacy mode (daily device_id rotation). */
+    fun togglePrivacyMode() {
+        privacyMode = !privacyMode
+        prefs.edit().putBoolean("privacy_mode", privacyMode).apply()
     }
 
     /** Cycle through data usage modes. Persisted to SharedPreferences. */
@@ -714,6 +750,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Manual button press: send immediately
             hitReporter.report(report)
         }
+
+        // In dev mode, start baseline g-record capture after any hit report
+        if (devModeEnabled && event.source == ReportSource.HIT) {
+            startBaselineCapture()
+        }
+    }
+
+    // --- Debug baseline g-records ---
+
+    /** Start capturing baseline g-records for 5 minutes (dev mode only). */
+    private fun startBaselineCapture() {
+        baselineCaptureEndMs = System.currentTimeMillis() + 5 * 60 * 1000
+        baselineMinAccumG = Int.MAX_VALUE
+        baselineMinWaveform = emptyList()
+        baselineMinMedian = 0
+        baselineMinTimestamp = 0L
+        lastBaselineCheckMs = 0L
+    }
+
+    /** Called periodically from accel callback to check baseline. */
+    private fun checkBaselineCapture(timestampMs: Long) {
+        if (baselineCaptureEndMs == 0L) return
+        if (timestampMs - lastBaselineCheckMs < 30_000) return // check every 30s
+        lastBaselineCheckMs = timestampMs
+
+        val now = System.currentTimeMillis()
+        if (now > baselineCaptureEndMs) {
+            // Timer expired — send the quietest window as baseline
+            sendBaselineReport()
+            baselineCaptureEndMs = 0L
+            return
+        }
+
+        // Compute accumulated-G for the current 30s buffer
+        val readings = accelRecorder.recentReadings(30_000)
+        if (readings.isEmpty()) return
+        val accumG = readings.sumOf { it.magnitudeMg }
+
+        if (accumG < baselineMinAccumG) {
+            baselineMinAccumG = accumG
+            // Save the waveform from the middle of the window (150 samples)
+            val mid = readings.size / 2
+            val start = maxOf(0, mid - 75)
+            val end = minOf(readings.size, mid + 75)
+            baselineMinWaveform = readings.subList(start, end).map { it.magnitudeMg }
+            val sorted = readings.map { it.magnitudeMg }.sorted()
+            baselineMinMedian = sorted[sorted.size / 2]
+            baselineMinTimestamp = readings[mid].timestamp
+        }
+    }
+
+    private fun sendBaselineReport() {
+        if (baselineMinWaveform.isEmpty()) return
+        val location = lastLocation ?: return
+
+        val baselineEvent = HitEvent(
+            timestampMs = baselineMinTimestamp,
+            peakVerticalMg = baselineMinWaveform.maxOrNull() ?: 0,
+            peakLateralMg = 0,
+            durationMs = if (baselineMinWaveform.size >= 2) {
+                ((baselineMinWaveform.size - 1) * 20) // ~20ms per sample at 50Hz
+            } else 0,
+            severity = 0,
+            waveformVertical = baselineMinWaveform,
+            waveformLateral = emptyList(),
+            baselineMg = baselineMinMedian,
+            peakToBaselineRatio = 0,
+            source = ReportSource.ALMOST, // use "almost" source for baseline
+        )
+        val bearingBefore = computeBearingBefore()
+        val bearingAfter = location.bearingDeg
+        val report = HitReportData.create(baselineEvent, location, bearingBefore, bearingAfter)
+        hitReporter.report(report)
     }
 
     // --- Data usage accessors (for UI) ---
