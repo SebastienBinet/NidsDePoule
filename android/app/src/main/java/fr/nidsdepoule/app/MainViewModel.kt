@@ -418,6 +418,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val hitEvent = buildHitEvent().copy(
             source = ReportSource.AUTO,
             severity = 2, // auto-detected = lower confidence than manual
+            detectionReason = event.reason.name.lowercase(),
         )
         hitsDetected++
 
@@ -548,9 +549,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val baseline = sorted[sorted.size / 2]
         val ratio = if (baseline > 0) (peakMag.toDouble() / baseline * 100).toInt() else 0
 
-        // FIX: duration_ms from waveform window, not full 30s buffer
-        val duration = if (waveformWindow.size >= 2) {
-            (waveformWindow.last().timestamp - waveformWindow.first().timestamp).toInt()
+        // Duration = width of the impact above baseline + half prominence.
+        // Measures how long the acceleration stayed elevated, not the full window span.
+        val impactThreshold = baseline + (peakMag - baseline) / 2
+        val peakInWindow = peakIdx - start
+        var impactStart = peakInWindow
+        while (impactStart > 0 && waveformWindow[impactStart - 1].magnitudeMg >= impactThreshold) {
+            impactStart--
+        }
+        var impactEnd = peakInWindow
+        while (impactEnd < waveformWindow.size - 1 && waveformWindow[impactEnd + 1].magnitudeMg >= impactThreshold) {
+            impactEnd++
+        }
+        val duration = if (impactEnd > impactStart) {
+            (waveformWindow[impactEnd].timestamp - waveformWindow[impactStart].timestamp).toInt()
         } else 0
 
         // Peak lateral = max absolute x-axis value in the waveform window
@@ -567,6 +579,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             baselineMg = baseline,
             peakToBaselineRatio = ratio,
             source = ReportSource.HIT,
+            peakIndex = peakIdx - start, // index within waveform window
         )
     }
 

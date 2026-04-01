@@ -40,16 +40,18 @@ data class HitReportData(
                 "bearing_deg" to bearingDeg,
                 "bearing_before_deg" to bearingBeforeDeg,
                 "bearing_after_deg" to bearingAfterDeg,
-                "pattern" to mapOf(
-                    "severity" to hit.severity,
-                    "peak_vertical_mg" to hit.peakVerticalMg,
-                    "peak_lateral_mg" to hit.peakLateralMg,
-                    "duration_ms" to hit.durationMs,
-                    "waveform_vertical" to hit.waveformVertical,
-                    "waveform_lateral" to hit.waveformLateral,
-                    "baseline_mg" to hit.baselineMg,
-                    "peak_to_baseline_ratio" to hit.peakToBaselineRatio,
-                ),
+                "pattern" to buildMap {
+                    put("severity", hit.severity)
+                    put("peak_vertical_mg", hit.peakVerticalMg)
+                    put("peak_lateral_mg", hit.peakLateralMg)
+                    put("duration_ms", hit.durationMs)
+                    put("waveform_vertical", hit.waveformVertical)
+                    put("waveform_lateral", hit.waveformLateral)
+                    put("baseline_mg", hit.baselineMg)
+                    put("peak_to_baseline_ratio", hit.peakToBaselineRatio)
+                    if (hit.peakIndex >= 0) put("peak_index", hit.peakIndex)
+                    if (hit.detectionReason != null) put("detection_reason", hit.detectionReason)
+                },
             ),
         )
     }

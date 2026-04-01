@@ -27,6 +27,10 @@ data class HitEvent(
     val baselineMg: Int,
     val peakToBaselineRatio: Int,
     val source: ReportSource = ReportSource.HIT,
+    /** Index of the peak sample within waveformVertical (for display marking). */
+    val peakIndex: Int = -1,
+    /** What triggered auto-detection (null for manual). */
+    val detectionReason: String? = null,
 )
 
 /** Phone holding mode, detected from accelerometer stability. */

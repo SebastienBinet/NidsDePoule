@@ -550,7 +550,7 @@ function loadHits() {
       tr.innerHTML = `
         <td>${h.record_id}</td>
         <td>${formatDate(h.timestamp_ms)}</td>
-        <td class="${srcClass}">${h.source_label}</td>
+        <td class="${srcClass}">${h.source_label}${h.pattern.detection_reason ? ' <small style="color:#999">(' + h.pattern.detection_reason.replace('_', '-').slice(0,5) + ')</small>' : ''}</td>
         <td class="${sevClass}">${h.pattern.severity}</td>
         <td style="color:${intensityColor(peakMg)};font-weight:700">${peakMg} mg</td>
         <td class="wf-spark"><canvas id="spark-${h.record_id}" width="80" height="24"></canvas></td>
@@ -570,7 +570,7 @@ function loadHits() {
       tbody.appendChild(tr);
       // Render sparkline after DOM insertion.
       if (h.pattern.waveform_vertical && h.pattern.waveform_vertical.length > 0) {
-        setTimeout(() => drawSparkline(`spark-${h.record_id}`, h.pattern.waveform_vertical), 0);
+        setTimeout(() => drawSparkline(`spark-${h.record_id}`, h.pattern.waveform_vertical, h.pattern.peak_index), 0);
       }
     });
 
@@ -603,6 +603,7 @@ function showHitPopup(h) {
     <div class="popup-row"><span class="popup-label">Peak accel</span><span class="popup-value">${h.pattern.peak_vertical_mg} / ${h.pattern.peak_lateral_mg} mg</span></div>
     <div class="popup-row"><span class="popup-label">Baseline</span><span class="popup-value">${h.pattern.baseline_mg} mg (ratio ${h.pattern.peak_to_baseline_ratio}%)</span></div>
     <div class="popup-row"><span class="popup-label">Duration</span><span class="popup-value">${h.pattern.duration_ms} ms</span></div>
+    ${h.pattern.detection_reason ? `<div class="popup-row"><span class="popup-label">Detect</span><span class="popup-value">${h.pattern.detection_reason}</span></div>` : ''}
     <div class="popup-row"><span class="popup-label">Speed</span><span class="popup-value">${(h.trajectory.speed_mps * 3.6).toFixed(1)} km/h</span></div>
     <div class="popup-row"><span class="popup-label">Bearing</span><span class="popup-value">${h.trajectory.bearing_before_deg.toFixed(0)}&deg; &rarr; ${h.trajectory.bearing_deg.toFixed(0)}&deg; &rarr; ${h.trajectory.bearing_after_deg.toFixed(0)}&deg;</span></div>
     <div class="popup-row"><span class="popup-label">GPS accuracy</span><span class="popup-value">&plusmn;${h.location.accuracy_m} m</span></div>
@@ -618,11 +619,11 @@ function showHitPopup(h) {
 
   // Draw waveform after popup DOM is added.
   if (h.pattern.waveform_samples > 0) {
-    setTimeout(() => drawWaveform(h.pattern.waveform_vertical, h.pattern.waveform_lateral), 50);
+    setTimeout(() => drawWaveform(h.pattern.waveform_vertical, h.pattern.waveform_lateral, h.pattern.peak_index), 50);
   }
 }
 
-function drawWaveform(vertical, lateral) {
+function drawWaveform(vertical, lateral, peakIndex) {
   const canvas = document.getElementById('wf-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -635,6 +636,17 @@ function drawWaveform(vertical, lateral) {
   const minV = Math.min(...all, -500);
   const maxV = Math.max(...all, 500);
   const range = maxV - minV || 1;
+
+  // Draw peak marker line (red dashed vertical).
+  if (peakIndex >= 0 && vertical.length > 1) {
+    const px = (peakIndex / (vertical.length - 1)) * w;
+    ctx.save();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+    ctx.restore();
+  }
 
   function drawLine(data, color) {
     if (data.length === 0) return;
@@ -673,7 +685,7 @@ function setFeedback(recordId, value, btn) {
 }
 
 // --- Sparkline drawing ---
-function drawSparkline(canvasId, data) {
+function drawSparkline(canvasId, data, peakIndex) {
   const canvas = document.getElementById(canvasId);
   if (!canvas || !data || data.length === 0) return;
   const ctx = canvas.getContext('2d');
@@ -688,6 +700,13 @@ function drawSparkline(canvasId, data) {
   const zeroY = h - ((0 - minV) / range) * h;
   ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 0.5;
   ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(w, zeroY); ctx.stroke();
+
+  // Peak marker
+  if (peakIndex >= 0 && data.length > 1) {
+    const px = (peakIndex / (data.length - 1)) * w;
+    ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+  }
 
   // Waveform
   ctx.beginPath();

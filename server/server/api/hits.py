@@ -42,6 +42,8 @@ def _parse_json_hit(data: dict) -> HitData:
             waveform_lateral=tuple(pat.get("waveform_lateral", [])),
             baseline_mg=pat.get("baseline_mg", 0),
             peak_to_baseline_ratio=pat.get("peak_to_baseline_ratio", 0),
+            peak_index=pat.get("peak_index", -1),
+            detection_reason=pat.get("detection_reason", ""),
         ),
     )
 

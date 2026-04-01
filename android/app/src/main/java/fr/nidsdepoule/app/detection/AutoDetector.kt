@@ -277,9 +277,9 @@ class AutoDetector {
         private const val MIN_SPEED_MPS = 2f
 
         // Minimum absolute magnitude (mg) to consider a reading as a potential hit.
-        // Prevents sensor noise on a still phone from triggering (noise ~5mg with
-        // very low stddev gives artificially high z-scores).
-        private const val MIN_ABSOLUTE_MG = 50
+        // Normal driving vibration is 30-80mg; a real pothole impact is >150mg.
+        // Prevents road noise from triggering (low stddev gives high z-scores).
+        private const val MIN_ABSOLUTE_MG = 150
 
         // Z-score thresholds per mount type
         private const val Z_THRESHOLD_MOUNTED = 3.5

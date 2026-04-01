@@ -158,6 +158,8 @@ def _hit_to_detail(record: dict) -> dict | None:
                 "waveform_samples": len(_list(pat.get("waveform_vertical"))),
                 "waveform_vertical": _list(pat.get("waveform_vertical")),
                 "waveform_lateral": _list(pat.get("waveform_lateral")),
+                "peak_index": _int(pat.get("peak_index", -1)),
+                "detection_reason": pat.get("detection_reason", ""),
             },
             "timestamp_ms": _int(hit.get("timestamp_ms")),
         }
