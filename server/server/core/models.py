@@ -34,6 +34,8 @@ class HitPatternData:
     waveform_lateral: tuple[int, ...] = ()
     baseline_mg: int = 0
     peak_to_baseline_ratio: int = 0
+    peak_index: int = -1
+    detection_reason: str = ""
 
 
 @dataclass(frozen=True)

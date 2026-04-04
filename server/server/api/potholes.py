@@ -59,16 +59,30 @@ def _list(val):
 
 
 @router.get("/potholes")
-async def get_potholes() -> JSONResponse:
+async def get_potholes(
+    since: int | None = Query(default=None, description="Only return clusters updated after this timestamp (ms)"),
+) -> JSONResponse:
     """Return clustered potholes as a GeoJSON FeatureCollection.
 
     Reads all stored hits, clusters them spatially, and returns the result.
+    If ``since`` is provided, only clusters with last_seen_ms > since are returned
+    (for incremental client polling).
     """
     from server.main import get_storage
 
     try:
         raw_hits = get_storage().read_all_hits()
         clusters = cluster_hits(raw_hits)
+
+        # Update device reputations from clustering results
+        from server.main import get_reputation
+        try:
+            get_reputation().update_from_clusters(clusters)
+        except Exception:
+            pass  # reputation is best-effort
+
+        if since is not None:
+            clusters = [c for c in clusters if c.last_seen_ms > since]
         geojson = clusters_to_geojson(clusters)
     except Exception as exc:
         log.error("potholes_failed", exc_info=True)
@@ -144,6 +158,8 @@ def _hit_to_detail(record: dict) -> dict | None:
                 "waveform_samples": len(_list(pat.get("waveform_vertical"))),
                 "waveform_vertical": _list(pat.get("waveform_vertical")),
                 "waveform_lateral": _list(pat.get("waveform_lateral")),
+                "peak_index": _int(pat.get("peak_index", -1)),
+                "detection_reason": pat.get("detection_reason", ""),
             },
             "timestamp_ms": _int(hit.get("timestamp_ms")),
         }

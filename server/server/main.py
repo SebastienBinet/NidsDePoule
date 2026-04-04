@@ -22,6 +22,7 @@ from server.api.monitoring import router as monitoring_router
 from server.api.potholes import router as potholes_router
 from server.config import AppConfig, load_config
 from server.core.processor import HitProcessor
+from server.core.reputation import ReputationStore
 from server.core.stats import ServerStats
 from server.queue.asyncio_queue import AsyncioHitQueue
 from server.storage.base import HitStorage
@@ -34,6 +35,7 @@ _processor: HitProcessor | None = None
 _stats: ServerStats | None = None
 _config: AppConfig | None = None
 _storage: HitStorage | None = None
+_reputation: ReputationStore | None = None
 
 
 def get_processor() -> HitProcessor:
@@ -54,6 +56,11 @@ def get_config() -> AppConfig:
 def get_storage() -> HitStorage:
     assert _storage is not None, "Server not initialized"
     return _storage
+
+
+def get_reputation() -> ReputationStore:
+    assert _reputation is not None, "Server not initialized"
+    return _reputation
 
 
 def _setup_logging(config: AppConfig) -> None:
@@ -80,7 +87,7 @@ def _setup_logging(config: AppConfig) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown."""
-    global _processor, _stats, _config, _storage
+    global _processor, _stats, _config, _storage, _reputation
 
     _config = load_config()
     _setup_logging(_config)
@@ -124,6 +131,7 @@ async def lifespan(app: FastAPI):
     else:
         _storage = FileHitStorage(base_dir=_config.storage.base_dir)
 
+    _reputation = ReputationStore()
     _processor = HitProcessor(queue=queue, storage=_storage, stats=_stats)
 
     # Start background storage consumer
@@ -160,7 +168,7 @@ app.include_router(monitoring_router)
 app.include_router(potholes_router)
 
 _WEB_DIR = Path(__file__).parent / "web"
-_VERSION_LABEL = "v38"
+_VERSION_LABEL = "v45"
 
 
 @app.get("/", response_class=HTMLResponse)

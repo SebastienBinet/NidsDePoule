@@ -9,8 +9,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import fr.nidsdepoule.app.store.DevicePosStore
+import fr.nidsdepoule.app.detection.AccelCsvRecorder
 import fr.nidsdepoule.app.detection.AccelRecorder
+import fr.nidsdepoule.app.detection.AutoDetector
+import fr.nidsdepoule.app.detection.DataUsageMode
 import fr.nidsdepoule.app.detection.HitEvent
+import fr.nidsdepoule.app.detection.MountType
+import fr.nidsdepoule.app.detection.MovingType
+import fr.nidsdepoule.app.detection.PeakFinder
 import fr.nidsdepoule.app.detection.ReportSource
 import fr.nidsdepoule.app.reporting.CategoryBytes
 import fr.nidsdepoule.app.reporting.DataCategory
@@ -55,8 +61,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Configuration ---
     private val t0 = System.currentTimeMillis().also { Log.d(TAG_INIT, "ViewModel constructor START") }
     private val prefs = application.getSharedPreferences("nidsdepoule", Context.MODE_PRIVATE)
-    val deviceId: String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
+    /** Persistent device ID (default). Used for reputation scoring on the server. */
+    private val persistentDeviceId: String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("device_id", it).apply()
+    }
+
+    /** Privacy mode: rotate device_id daily via SHA-256 hash. Opt-in, reduces reputation accuracy. */
+    var privacyMode by mutableStateOf(prefs.getBoolean("privacy_mode", false))
+        private set
+
+    /** Effective device ID: persistent or daily-rotated depending on privacy mode. */
+    val deviceId: String get() = if (privacyMode) {
+        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest("$persistentDeviceId:$dateStr".toByteArray())
+            .take(16).joinToString("") { "%02x".format(it) }
+    } else {
+        persistentDeviceId
     }
     val appVersion: Int = try {
         application.packageManager.getPackageInfo(application.packageName, 0).longVersionCode.toInt()
@@ -68,6 +89,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Core modules ---
     private val accelRecorder = AccelRecorder().also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms accelRecorder") }
     val accelBuffer = AccelerationBuffer()
+    val csvRecorder = AccelCsvRecorder(application)
+    val autoDetector = AutoDetector()
     private val dataUsageTracker = DataUsageTracker()
     private val voiceFeedback = VoiceFeedback(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceFeedback") }
     val voiceCommandListener = VoiceCommandListener(application).also { Log.d(TAG_INIT, "+${System.currentTimeMillis()-t0}ms voiceCommandListener") }
@@ -99,6 +122,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val locationHistory = ArrayDeque<LocationReading>(100)
     private var lastLocation: LocationReading? = null
 
+    // --- Duplicate peak prevention ---
+    /** Timestamps of peaks already reported, to prevent multiple AYOYEs sending the same peak. */
+    private val reportedPeakTimestamps = mutableSetOf<Long>()
+
+    // --- Debug baseline capture ---
+    /** When non-zero, we're capturing baseline g-records until this timestamp. */
+    private var baselineCaptureEndMs = 0L
+    /** Minimum accumulated-G seen during baseline capture, and the corresponding waveform. */
+    private var baselineMinAccumG = Int.MAX_VALUE
+    private var baselineMinWaveform: List<Int> = emptyList()
+    private var baselineMinMedian = 0
+    private var baselineMinTimestamp = 0L
+    private var lastBaselineCheckMs = 0L
+
     // --- Observable UI state ---
     var currentSpeedMps by mutableStateOf(0f)
         private set
@@ -121,6 +158,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isSimulating by mutableStateOf(false)
         private set
     var voiceMuted by mutableStateOf(false)
+        private set
+    var isCsvRecording by mutableStateOf(false)
+        private set
+    var mountType by mutableStateOf(MountType.UNKNOWN)
+        private set
+    var movingType by mutableStateOf(MovingType.UNKNOWN)
+        private set
+    var dataUsageMode by mutableStateOf(
+        DataUsageMode.entries.getOrNull(
+            prefs.getInt("data_usage_mode", DataUsageMode.UNLIMITED.ordinal)
+        ) ?: DataUsageMode.UNLIMITED
+    )
         private set
 
     // Counter for throttling graph updates (~5 Hz at 50 Hz sensor rate)
@@ -198,16 +247,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Buffer for graph display
                 accelBuffer.add(timestamp, magnitudeMg)
 
-                // Buffer for Hit waveform capture
-                accelRecorder.addReading(timestamp, magnitudeMg)
+                // Buffer for Hit waveform capture (with per-axis data)
+                accelRecorder.addReading(timestamp, magnitudeMg, x, y, z)
 
-                // Update graph samples periodically (every ~200ms = every 10th reading at 50Hz)
+                // CSV recording for test vector generation (dev mode)
+                if (csvRecorder.isRecording) {
+                    csvRecorder.addSample(timestamp, x, y, z, magnitudeMg)
+                }
+
+                // Feed AutoDetector for mount/moving state + auto-detection
+                val reading = fr.nidsdepoule.app.detection.AccelReading(timestamp, magnitudeMg, x, y, z)
+                autoDetector.addReading(reading, currentSpeedMps)
+
+                // Propagate state changes to UI (~5Hz, same as graph)
                 accelSampleCounter++
                 if (accelSampleCounter >= 10) {
                     accelSampleCounter = 0
                     accelSamples = accelBuffer.snapshot(step = 4)
+                    mountType = autoDetector.mountType
+                    movingType = autoDetector.movingType
+
+                    // Check baseline capture (dev mode, every 30s)
+                    if (baselineCaptureEndMs > 0) {
+                        checkBaselineCapture(timestamp)
+                    }
                 }
             })
+        }
+
+        // Wire AutoDetector auto-detection callback
+        autoDetector.onDetection = { event ->
+            onAutoDetection(event)
         }
 
         // Start GPS (real or simulated)
@@ -244,6 +314,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         lastLocation = reading
         currentSpeedMps = reading.speedMps
         hitReporter.lastKnownLocation = reading
+        csvRecorder.updateLocation(reading)
+        autoDetector.updateSpeed(reading.speedMps, reading.timestampMs)
+
+        // Update polling interval based on driving state
+        hitReporter.updatePollInterval(autoDetector.movingType == MovingType.DRIVING)
 
         // Check proximity to known potholes
         checkPotholeProximity(reading)
@@ -309,6 +384,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         voiceMuted = !voiceMuted
     }
 
+    /** Toggle CSV recording (dev mode only). Returns file path when stopping, null when starting. */
+    fun toggleCsvRecording(): String? {
+        return if (csvRecorder.isRecording) {
+            val path = csvRecorder.stop()
+            isCsvRecording = false
+            path
+        } else {
+            csvRecorder.start()
+            isCsvRecording = csvRecorder.isRecording
+            null
+        }
+    }
+
+    /** Toggle privacy mode (daily device_id rotation). */
+    fun togglePrivacyMode() {
+        privacyMode = !privacyMode
+        prefs.edit().putBoolean("privacy_mode", privacyMode).apply()
+    }
+
+    /** Cycle through data usage modes. Persisted to SharedPreferences. */
+    fun cycleDataUsageMode() {
+        val modes = DataUsageMode.entries
+        val nextIdx = (dataUsageMode.ordinal + 1) % modes.size
+        dataUsageMode = modes[nextIdx]
+        prefs.edit().putInt("data_usage_mode", dataUsageMode.ordinal).apply()
+    }
+
+    /** Handle automatic pothole detection from AutoDetector. */
+    private fun onAutoDetection(event: AutoDetector.DetectionEvent) {
+        val location = lastLocation ?: return
+
+        val hitEvent = buildHitEvent().copy(
+            source = ReportSource.AUTO,
+            severity = 2, // auto-detected = lower confidence than manual
+            detectionReason = event.reason.name.lowercase(),
+        )
+        hitsDetected++
+
+        // Interpolate GPS at the detection timestamp
+        val peakLocation = interpolateLocation(event.timestamp) ?: location
+        addMapMarker(peakLocation, MapMarkerType.HIT)
+        sendReport(hitEvent, peakLocation, "AUTO")
+    }
+
     /** Toggle between real GPS and cemetery circuit simulation. */
     fun toggleSimulation() {
         if (!isRunning) return
@@ -370,7 +489,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sendReport(event, location, "AYOYE !?!#\$!", fromVoice = fromVoice)
     }
 
-    /** Build a HitEvent from the last 30 seconds of accelerometer data. */
+    /** Build a HitEvent from the last 30 seconds of accelerometer data.
+     *  Uses PeakFinder to find the tallest unreported peak (prevents duplicates). */
     private fun buildHitEvent(): HitEvent {
         val readings = accelRecorder.recentReadings(30_000)
         if (readings.isEmpty()) {
@@ -384,36 +504,82 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        // Find peak magnitude in the captured window.
-        var peakIdx = 0
-        var peakMag = 0
-        for ((i, r) in readings.withIndex()) {
-            if (r.magnitudeMg > peakMag) { peakMag = r.magnitudeMg; peakIdx = i }
+        // Evict reported peaks older than 30s
+        val cutoff = System.currentTimeMillis() - 30_000
+        reportedPeakTimestamps.removeAll { it < cutoff }
+
+        // Use PeakFinder to find the tallest unreported peak
+        val peaks = PeakFinder.findPeaks(
+            readings = readings,
+            minProminenceMg = 50,
+            minSeparationMs = 500,
+            excludeTimestamps = reportedPeakTimestamps,
+        )
+
+        // If PeakFinder found a peak, use it; otherwise fallback to global max
+        val peakIdx: Int
+        val peakMag: Int
+        if (peaks.isNotEmpty()) {
+            val best = peaks.first() // sorted by magnitude descending
+            peakIdx = best.index
+            peakMag = best.magnitudeMg
+            reportedPeakTimestamps.add(best.timestamp)
+        } else {
+            // Fallback: global maximum (all peaks already reported or below threshold)
+            var idx = 0
+            var mag = 0
+            for ((i, r) in readings.withIndex()) {
+                if (r.magnitudeMg > mag) { mag = r.magnitudeMg; idx = i }
+            }
+            peakIdx = idx
+            peakMag = mag
+            reportedPeakTimestamps.add(readings[peakIdx].timestamp)
         }
 
         // Extract waveform (up to 150 samples centered on peak).
         val half = 75
         val start = maxOf(0, peakIdx - half)
         val end = minOf(readings.size, peakIdx + half)
-        val waveform = readings.subList(start, end).map { it.magnitudeMg }
+        val waveformWindow = readings.subList(start, end)
+        val waveform = waveformWindow.map { it.magnitudeMg }
+        val waveformLateral = waveformWindow.map { it.xMg }
 
         // Baseline = median magnitude.
         val sorted = readings.map { it.magnitudeMg }.sorted()
         val baseline = sorted[sorted.size / 2]
         val ratio = if (baseline > 0) (peakMag.toDouble() / baseline * 100).toInt() else 0
-        val duration = (readings.last().timestamp - readings.first().timestamp).toInt()
+
+        // Duration = width of the impact above baseline + half prominence.
+        // Measures how long the acceleration stayed elevated, not the full window span.
+        val impactThreshold = baseline + (peakMag - baseline) / 2
+        val peakInWindow = peakIdx - start
+        var impactStart = peakInWindow
+        while (impactStart > 0 && waveformWindow[impactStart - 1].magnitudeMg >= impactThreshold) {
+            impactStart--
+        }
+        var impactEnd = peakInWindow
+        while (impactEnd < waveformWindow.size - 1 && waveformWindow[impactEnd + 1].magnitudeMg >= impactThreshold) {
+            impactEnd++
+        }
+        val duration = if (impactEnd > impactStart) {
+            (waveformWindow[impactEnd].timestamp - waveformWindow[impactStart].timestamp).toInt()
+        } else 0
+
+        // Peak lateral = max absolute x-axis value in the waveform window
+        val peakLateral = waveformWindow.maxOfOrNull { kotlin.math.abs(it.xMg) } ?: 0
 
         return HitEvent(
             timestampMs = readings[peakIdx].timestamp,
             peakVerticalMg = peakMag,
-            peakLateralMg = 0,
+            peakLateralMg = peakLateral,
             durationMs = duration,
             severity = 3,
             waveformVertical = waveform,
-            waveformLateral = emptyList(),
+            waveformLateral = waveformLateral,
             baselineMg = baseline,
             peakToBaselineRatio = ratio,
             source = ReportSource.HIT,
+            peakIndex = peakIdx - start, // index within waveform window
         )
     }
 
@@ -484,9 +650,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val now = System.currentTimeMillis()
         if (now - lastProximityAlertMs < 5_000) return  // Cooldown
 
+        val currentBearing = reading.bearingDeg
+
         for (marker in serverMarkers) {
             val key = marker.latMicrodeg.toLong() * 1_000_000L + marker.lonMicrodeg
             if (key in warnedPotholes) continue
+
+            // Direction filtering: skip potholes from the opposite direction
+            val markerBearing = marker.bearingAvg
+            if (markerBearing != null && currentBearing != 0f) {
+                val bearingDiff = kotlin.math.abs(normalizeAngle(currentBearing - markerBearing))
+                if (bearingDiff > 90f) continue  // opposite direction, skip
+            }
 
             val lat2 = marker.latMicrodeg / 1_000_000.0
             val lon2 = marker.lonMicrodeg / 1_000_000.0
@@ -588,6 +763,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Manual button press: send immediately
             hitReporter.report(report)
         }
+
+        // In dev mode, start baseline g-record capture after any hit report
+        if (devModeEnabled && event.source == ReportSource.HIT) {
+            startBaselineCapture()
+        }
+    }
+
+    // --- Debug baseline g-records ---
+
+    /** Start capturing baseline g-records for 5 minutes (dev mode only). */
+    private fun startBaselineCapture() {
+        baselineCaptureEndMs = System.currentTimeMillis() + 5 * 60 * 1000
+        baselineMinAccumG = Int.MAX_VALUE
+        baselineMinWaveform = emptyList()
+        baselineMinMedian = 0
+        baselineMinTimestamp = 0L
+        lastBaselineCheckMs = 0L
+    }
+
+    /** Called periodically from accel callback to check baseline. */
+    private fun checkBaselineCapture(timestampMs: Long) {
+        if (baselineCaptureEndMs == 0L) return
+        if (timestampMs - lastBaselineCheckMs < 30_000) return // check every 30s
+        lastBaselineCheckMs = timestampMs
+
+        val now = System.currentTimeMillis()
+        if (now > baselineCaptureEndMs) {
+            // Timer expired — send the quietest window as baseline
+            sendBaselineReport()
+            baselineCaptureEndMs = 0L
+            return
+        }
+
+        // Compute accumulated-G for the current 30s buffer
+        val readings = accelRecorder.recentReadings(30_000)
+        if (readings.isEmpty()) return
+        val accumG = readings.sumOf { it.magnitudeMg }
+
+        if (accumG < baselineMinAccumG) {
+            baselineMinAccumG = accumG
+            // Save the waveform from the middle of the window (150 samples)
+            val mid = readings.size / 2
+            val start = maxOf(0, mid - 75)
+            val end = minOf(readings.size, mid + 75)
+            baselineMinWaveform = readings.subList(start, end).map { it.magnitudeMg }
+            val sorted = readings.map { it.magnitudeMg }.sorted()
+            baselineMinMedian = sorted[sorted.size / 2]
+            baselineMinTimestamp = readings[mid].timestamp
+        }
+    }
+
+    private fun sendBaselineReport() {
+        if (baselineMinWaveform.isEmpty()) return
+        val location = lastLocation ?: return
+
+        val baselineEvent = HitEvent(
+            timestampMs = baselineMinTimestamp,
+            peakVerticalMg = baselineMinWaveform.maxOrNull() ?: 0,
+            peakLateralMg = 0,
+            durationMs = if (baselineMinWaveform.size >= 2) {
+                ((baselineMinWaveform.size - 1) * 20) // ~20ms per sample at 50Hz
+            } else 0,
+            severity = 0,
+            waveformVertical = baselineMinWaveform,
+            waveformLateral = emptyList(),
+            baselineMg = baselineMinMedian,
+            peakToBaselineRatio = 0,
+            source = ReportSource.ALMOST, // use "almost" source for baseline
+        )
+        val bearingBefore = computeBearingBefore()
+        val bearingAfter = location.bearingDeg
+        val report = HitReportData.create(baselineEvent, location, bearingBefore, bearingAfter)
+        hitReporter.report(report)
     }
 
     // --- Data usage accessors (for UI) ---
@@ -643,6 +891,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val x = Math.cos(Math.toRadians(lat1)) * Math.sin(Math.toRadians(lat2)) -
                     Math.sin(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.cos(dLon)
             return ((Math.toDegrees(Math.atan2(y, x)) + 360) % 360).toFloat()
+        }
+
+        /** Normalize angle difference to [-180, 180]. */
+        fun normalizeAngle(deg: Float): Float {
+            var a = deg % 360f
+            if (a > 180f) a -= 360f
+            if (a < -180f) a += 360f
+            return a
         }
     }
 }

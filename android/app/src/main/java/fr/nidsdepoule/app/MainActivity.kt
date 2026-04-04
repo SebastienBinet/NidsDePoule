@@ -119,6 +119,14 @@ class MainActivity : ComponentActivity() {
                         mfccExtractor = viewModel.voiceCommandListener.getMfccExtractor(),
                         // Voice match overlay
                         voiceMatchScores = viewModel.voiceCommandListener.matchScores,
+                        // CSV recording
+                        isCsvRecording = viewModel.isCsvRecording,
+                        onToggleCsvRecording = { viewModel.toggleCsvRecording() },
+                        // Detection state
+                        mountType = viewModel.mountType,
+                        movingType = viewModel.movingType,
+                        dataUsageMode = viewModel.dataUsageMode,
+                        onDataUsageModeTap = { viewModel.cycleDataUsageMode() },
                     )
                 }
             }

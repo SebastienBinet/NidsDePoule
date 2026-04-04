@@ -168,3 +168,10 @@ async def get_client_config() -> dict:
         "max_hits_per_hour": config.limits.max_hits_per_device_per_hour,
         "max_batch_size": config.limits.max_batch_size,
     }
+
+
+@router.get("/devices/reputation")
+async def get_device_reputation() -> dict:
+    """Return device reputation scores summary."""
+    from server.main import get_reputation
+    return get_reputation().summary()

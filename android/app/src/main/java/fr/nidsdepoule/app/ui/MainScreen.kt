@@ -24,6 +24,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.app.R
+import fr.nidsdepoule.app.detection.DataUsageMode
+import fr.nidsdepoule.app.detection.MountType
+import fr.nidsdepoule.app.detection.MovingType
 import fr.nidsdepoule.app.reporting.CategoryBytes
 import fr.nidsdepoule.app.reporting.DataCategory
 import fr.nidsdepoule.app.sensor.LocationReading
@@ -89,6 +92,14 @@ fun MainScreen(
     mfccExtractor: MfccExtractor? = null,
     // Voice match overlay (dev mode)
     voiceMatchScores: Map<String, Float> = emptyMap(),
+    // CSV recording (dev mode)
+    isCsvRecording: Boolean = false,
+    onToggleCsvRecording: () -> Unit = {},
+    // Status widget: detection state
+    mountType: MountType = MountType.UNKNOWN,
+    movingType: MovingType = MovingType.UNKNOWN,
+    dataUsageMode: DataUsageMode = DataUsageMode.UNLIMITED,
+    onDataUsageModeTap: () -> Unit = {},
 ) {
     // Voice training dialog
     if (showVoiceTraining && profileStore != null && mfccExtractor != null) {
@@ -162,6 +173,10 @@ fun MainScreen(
             devModeEnabled = devModeEnabled,
             isSimulating = isSimulating,
             isListening = isListening,
+            mountType = mountType,
+            movingType = movingType,
+            dataUsageMode = dataUsageMode,
+            onDataUsageModeTap = onDataUsageModeTap,
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -250,17 +265,34 @@ fun MainScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            Button(
-                onClick = onToggleSimulation,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isSimulating) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
-                ),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    text = if (isSimulating) "Stop Simulation" else "Simulate (Cemetery Circuit)",
-                    fontSize = 13.sp,
-                )
+                Button(
+                    onClick = onToggleSimulation,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSimulating) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
+                    ),
+                ) {
+                    Text(
+                        text = if (isSimulating) "Stop Sim" else "Simulate",
+                        fontSize = 13.sp,
+                    )
+                }
+                Button(
+                    onClick = onToggleCsvRecording,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isCsvRecording) Color(0xFFF44336) else MaterialTheme.colorScheme.primary,
+                    ),
+                ) {
+                    Text(
+                        text = if (isCsvRecording) "Stop REC" else "REC CSV",
+                        fontSize = 13.sp,
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(4.dp))
             // Server URL — read-only, tap to copy
@@ -329,10 +361,15 @@ private fun StatusBar(
     devModeEnabled: Boolean,
     isSimulating: Boolean = false,
     isListening: Boolean = false,
+    mountType: MountType = MountType.UNKNOWN,
+    movingType: MovingType = MovingType.UNKNOWN,
+    dataUsageMode: DataUsageMode = DataUsageMode.UNLIMITED,
+    onDataUsageModeTap: () -> Unit = {},
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
     ) {
         StatusChip(
             label = stringResource(R.string.status_gps),
@@ -342,16 +379,42 @@ private fun StatusBar(
             label = stringResource(R.string.status_connected),
             active = isConnected,
         )
+        // Mount type chip
+        ColoredChip(
+            label = when (mountType) {
+                MountType.CAR_MOUNT -> "MOUNT"
+                MountType.HANDHELD -> "HAND"
+                MountType.UNKNOWN -> "HOLD?"
+            },
+            bgColor = when (mountType) {
+                MountType.CAR_MOUNT -> Color(0xFF4CAF50)
+                MountType.HANDHELD -> Color(0xFFFF9800)
+                MountType.UNKNOWN -> Color.Gray
+            },
+        )
+        // Moving type chip
+        ColoredChip(
+            label = when (movingType) {
+                MovingType.DRIVING -> "DRIVE"
+                MovingType.JUST_PARKED -> "PARK"
+                MovingType.NOT_IN_CAR -> "WALK"
+                MovingType.UNKNOWN -> "MOVE?"
+            },
+            bgColor = when (movingType) {
+                MovingType.DRIVING -> Color(0xFF4CAF50)
+                MovingType.JUST_PARKED -> Color(0xFFFF9800)
+                MovingType.NOT_IN_CAR -> Color(0xFF9E9E9E)
+                MovingType.UNKNOWN -> Color.Gray
+            },
+        )
+        // Data usage mode chip (tappable to cycle)
+        ColoredChip(
+            label = dataUsageMode.label,
+            bgColor = Color(0xFF2196F3),
+            modifier = Modifier.clickable { onDataUsageModeTap() },
+        )
         if (isListening) {
-            Text(
-                text = "MIC",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                modifier = Modifier
-                    .background(Color(0xFF2196F3), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            )
+            ColoredChip(label = "MIC", bgColor = Color(0xFF2196F3))
         }
         if (devModeEnabled) {
             Text(
@@ -368,17 +431,26 @@ private fun StatusBar(
             )
         }
         if (isSimulating) {
-            Text(
-                text = "SIM",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                modifier = Modifier
-                    .background(Color(0xFF4CAF50), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            )
+            ColoredChip(label = "SIM", bgColor = Color(0xFF4CAF50))
         }
     }
+}
+
+@Composable
+private fun ColoredChip(
+    label: String,
+    bgColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = label,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        color = Color.White,
+        modifier = modifier
+            .background(bgColor, RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
 }
 
 @Composable

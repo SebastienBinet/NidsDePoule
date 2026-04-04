@@ -49,10 +49,14 @@ data class MapMarkerData(
     val lonMicrodeg: Int,
     val type: MapMarkerType,
     val timestampMs: Long,
+    /** Average bearing of reports in this cluster (degrees, 0=north). Null if unknown. */
+    val bearingAvg: Float? = null,
+    /** Cluster classification: "pothole" or "infrastructure". */
+    val classification: String = "pothole",
 )
 
 /** How many seconds ahead of travel the map should cover. */
-const val MAP_LOOKAHEAD_SECONDS = 60f
+const val MAP_LOOKAHEAD_SECONDS = 30f
 
 /** Montreal island bounding box (approx). */
 private const val MONTREAL_MIN_LAT = 45.40

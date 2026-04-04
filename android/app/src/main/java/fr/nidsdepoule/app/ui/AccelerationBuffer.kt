@@ -48,6 +48,16 @@ class AccelerationBuffer(private val maxSize: Int = 1500) {
             result.add(samples[i])
             i += step
         }
+        // Ensure peak-sent and hit samples are never skipped by downsampling.
+        // Insert them at the correct position if they weren't already picked.
+        val pickedTimestamps = result.mapTo(HashSet(result.size)) { it.timestampMs }
+        for (s in samples) {
+            if ((s.isPeakSent || s.isHit) && s.timestampMs !in pickedTimestamps) {
+                // Binary-search insert at correct time position
+                val insertIdx = result.indexOfFirst { it.timestampMs > s.timestampMs }
+                if (insertIdx >= 0) result.add(insertIdx, s) else result.add(s)
+            }
+        }
         return result
     }
 
