@@ -1,0 +1,175 @@
+package fr.nidsdepoule.capture.recording
+
+import android.content.Context
+import android.location.Location
+import android.os.Handler
+import android.os.HandlerThread
+import fr.nidsdepoule.capture.sensor.SensorInfo
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+/**
+ * Orchestrates CSV writers for all sensor streams.
+ *
+ * All file I/O is dispatched to a dedicated HandlerThread so sensor callbacks
+ * are never blocked by disk writes.
+ */
+class SessionRecorder(context: Context) {
+
+    private val baseDir = File(context.getExternalFilesDir(null), "capture_sessions")
+
+    private lateinit var sessionDir: File
+    private lateinit var sessionId: String
+    private lateinit var metadata: SessionMetadata
+
+    private lateinit var accelWriter: CsvWriter
+    private lateinit var gyroWriter: CsvWriter
+    private lateinit var magWriter: CsvWriter
+    private lateinit var gpsWriter: CsvWriter
+
+    private val ioThread = HandlerThread("csv-io").apply { start() }
+    private val ioHandler = Handler(ioThread.looper)
+
+    @Volatile var accelCount = 0L; private set
+    @Volatile var gyroCount = 0L; private set
+    @Volatile var magCount = 0L; private set
+    @Volatile var gpsCount = 0L; private set
+    @Volatile var totalBytes = 0L; private set
+    @Volatile var startTimeMs = 0L; private set
+
+    val durationMs: Long get() = if (startTimeMs > 0) System.currentTimeMillis() - startTimeMs else 0
+
+    fun start(sensors: Map<String, SensorInfo>): String {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val suffix = (1..5).map { "abcdefghijklmnopqrstuvwxyz0123456789".random() }.joinToString("")
+        sessionId = "${timestamp}_$suffix"
+
+        sessionDir = File(baseDir, "session_$sessionId").apply { mkdirs() }
+
+        accelWriter = CsvWriter(File(sessionDir, "accel_$sessionId.csv"), "timestamp_ns,x_ms2,y_ms2,z_ms2")
+        gyroWriter = CsvWriter(File(sessionDir, "gyro_$sessionId.csv"), "timestamp_ns,x_rads,y_rads,z_rads")
+        magWriter = CsvWriter(File(sessionDir, "mag_$sessionId.csv"), "timestamp_ns,x_ut,y_ut,z_ut")
+        gpsWriter = CsvWriter(
+            File(sessionDir, "gps_$sessionId.csv"),
+            "timestamp_ms,lat_deg,lon_deg,altitude_m,speed_mps,bearing_deg,accuracy_m,vertical_accuracy_m,speed_accuracy_mps,bearing_accuracy_deg"
+        )
+
+        metadata = SessionMetadata(sessionId = sessionId, sensors = sensors)
+        startTimeMs = System.currentTimeMillis()
+
+        return sessionId
+    }
+
+    fun writeAccel(timestampNs: Long, x: Float, y: Float, z: Float) {
+        ioHandler.post {
+            accelWriter.writeLine("$timestampNs,%.6f,%.6f,%.6f".format(x, y, z))
+            accelCount++
+            totalBytes = computeTotalBytes()
+        }
+    }
+
+    fun writeGyro(timestampNs: Long, x: Float, y: Float, z: Float) {
+        ioHandler.post {
+            gyroWriter.writeLine("$timestampNs,%.6f,%.6f,%.6f".format(x, y, z))
+            gyroCount++
+            totalBytes = computeTotalBytes()
+        }
+    }
+
+    fun writeMag(timestampNs: Long, x: Float, y: Float, z: Float) {
+        ioHandler.post {
+            magWriter.writeLine("$timestampNs,%.6f,%.6f,%.6f".format(x, y, z))
+            magCount++
+            totalBytes = computeTotalBytes()
+        }
+    }
+
+    fun writeGps(location: Location) {
+        ioHandler.post {
+            val line = buildString {
+                append(location.time)
+                append(",%.8f,%.8f".format(location.latitude, location.longitude))
+                append(",%.2f".format(if (location.hasAltitude()) location.altitude else 0.0))
+                append(",%.2f".format(if (location.hasSpeed()) location.speed else 0f))
+                append(",%.1f".format(if (location.hasBearing()) location.bearing else 0f))
+                append(",%.1f".format(if (location.hasAccuracy()) location.accuracy else 0f))
+                append(",%.1f".format(if (location.hasVerticalAccuracy()) location.verticalAccuracyMeters else 0f))
+                append(",%.2f".format(if (location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond else 0f))
+                append(",%.1f".format(if (location.hasBearingAccuracy()) location.bearingAccuracyDegrees else 0f))
+            }
+            gpsWriter.writeLine(line)
+            gpsCount++
+            totalBytes = computeTotalBytes()
+        }
+    }
+
+    fun stop() {
+        // Post the close operations to the I/O thread so all pending writes finish first
+        ioHandler.post {
+            accelWriter.close()
+            gyroWriter.close()
+            magWriter.close()
+            gpsWriter.close()
+
+            metadata.endTimeEpochMs = System.currentTimeMillis()
+            metadata.sampleCounts = mapOf(
+                "accel" to accelCount,
+                "gyro" to gyroCount,
+                "mag" to magCount,
+                "gps" to gpsCount,
+            )
+            metadata.fileSizesBytes = mapOf(
+                "accel" to accelWriter.bytesWritten,
+                "gyro" to gyroWriter.bytesWritten,
+                "mag" to magWriter.bytesWritten,
+                "gps" to gpsWriter.bytesWritten,
+            )
+            metadata.writeTo(File(sessionDir, "meta_$sessionId.json"))
+        }
+
+        // Wait for all pending I/O to complete, then shut down the thread
+        val latch = java.util.concurrent.CountDownLatch(1)
+        ioHandler.post { latch.countDown() }
+        latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+        ioThread.quitSafely()
+    }
+
+    fun listSessions(): List<SessionSummary> {
+        if (!baseDir.exists()) return emptyList()
+        return baseDir.listFiles()
+            ?.filter { it.isDirectory && it.name.startsWith("session_") }
+            ?.sortedByDescending { it.name }
+            ?.mapNotNull { dir ->
+                val metaFile = dir.listFiles()?.find { it.name.startsWith("meta_") && it.name.endsWith(".json") }
+                if (metaFile != null) {
+                    try {
+                        val json = org.json.JSONObject(metaFile.readText())
+                        SessionSummary(
+                            sessionId = json.getString("session_id"),
+                            startTimeIso = json.optString("start_time_iso", ""),
+                            sizeBytes = dir.listFiles()?.sumOf { it.length() } ?: 0,
+                            directory = dir,
+                        )
+                    } catch (_: Exception) { null }
+                } else null
+            }
+            ?: emptyList()
+    }
+
+    fun deleteSession(sessionId: String) {
+        val dir = File(baseDir, "session_$sessionId")
+        if (dir.exists()) dir.deleteRecursively()
+    }
+
+    private fun computeTotalBytes(): Long =
+        accelWriter.bytesWritten + gyroWriter.bytesWritten + magWriter.bytesWritten + gpsWriter.bytesWritten
+}
+
+data class SessionSummary(
+    val sessionId: String,
+    val startTimeIso: String,
+    val sizeBytes: Long,
+    val directory: File,
+)

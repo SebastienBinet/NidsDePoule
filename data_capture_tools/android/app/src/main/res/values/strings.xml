@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sensor Capture</string>
+    <string name="channel_name">Sensor Recording</string>
+    <string name="channel_description">Shows when sensor data is being recorded</string>
+</resources>
