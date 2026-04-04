@@ -1,0 +1,51 @@
+name: Build Sensor Capture APK
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'data_capture_tools/android/**'
+      - '.github/workflows/capture-app-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: capture-gradle-${{ hashFiles('data_capture_tools/android/**/*.gradle.kts') }}
+          restore-keys: capture-gradle-
+
+      - name: Make gradlew executable
+        run: chmod +x data_capture_tools/android/gradlew
+
+      - name: Build debug APK
+        working-directory: data_capture_tools/android
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: SensorCapture-debug
+          path: data_capture_tools/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 90
