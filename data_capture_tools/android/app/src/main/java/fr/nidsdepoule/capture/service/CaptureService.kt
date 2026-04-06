@@ -59,6 +59,8 @@ class CaptureService : Service() {
     val totalBytes: StateFlow<Long> = _totalBytes
     private val _durationMs = MutableStateFlow(0L)
     val durationMs: StateFlow<Long> = _durationMs
+    private val _eventCount = MutableStateFlow(0L)
+    val eventCount: StateFlow<Long> = _eventCount
 
     private var gpsRateCount = 0L
 
@@ -121,6 +123,12 @@ class CaptureService : Service() {
         _isRecording.value = false
         _accelHz.value = 0f; _gyroHz.value = 0f; _magHz.value = 0f; _gpsHz.value = 0f
         updateNotification("Stopped")
+    }
+
+    fun recordEvent(eventType: String, source: String) {
+        if (!_isRecording.value) return
+        recorder.writeEvent(eventType, source)
+        _eventCount.value = recorder.eventCount
     }
 
     fun getRecorder(): SessionRecorder = recorder

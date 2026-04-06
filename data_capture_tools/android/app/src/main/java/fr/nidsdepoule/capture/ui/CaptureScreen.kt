@@ -31,6 +31,7 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     val gpsHz by viewModel.gpsHz.collectAsState()
     val totalBytes by viewModel.totalBytes.collectAsState()
     val durationMs by viewModel.durationMs.collectAsState()
+    val eventCount by viewModel.eventCount.collectAsState()
     val sessions by viewModel.sessions.collectAsState()
 
     Scaffold(
@@ -51,14 +52,24 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Status card
-            StatusCard(isRecording, durationMs, totalBytes)
+            StatusCard(isRecording, durationMs, totalBytes, eventCount)
 
             Spacer(modifier = Modifier.height(12.dp))
 
             // Sensor rates card
             SensorRatesCard(accelHz, gyroHz, magHz, gpsHz)
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Event marking buttons (for passenger use — no parasitic accel on separate phone)
+            if (isRecording) {
+                EventButtonsCard(
+                    onPothole = { viewModel.recordEvent("pothole", "screen_button") },
+                    onCrack = { viewModel.recordEvent("crack", "screen_button") },
+                    onRough = { viewModel.recordEvent("rough", "screen_button") },
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             // Start/Stop button
             Button(
@@ -104,7 +115,7 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
 }
 
 @Composable
-private fun StatusCard(isRecording: Boolean, durationMs: Long, totalBytes: Long) {
+private fun StatusCard(isRecording: Boolean, durationMs: Long, totalBytes: Long, eventCount: Long) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -132,6 +143,54 @@ private fun StatusCard(isRecording: Boolean, durationMs: Long, totalBytes: Long)
                 if (isRecording) {
                     Text(formatDuration(durationMs), fontFamily = FontFamily.Monospace)
                     Text(formatBytes(totalBytes), fontFamily = FontFamily.Monospace)
+                    if (eventCount > 0) {
+                        Text("$eventCount event(s) marked", fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EventButtonsCard(
+    onPothole: () -> Unit,
+    onCrack: () -> Unit,
+    onRough: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                "Mark Event (screen or BT remote)",
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onPothole,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text("Pothole", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = onCrack,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text("Crack", fontSize = 13.sp)
+                }
+                OutlinedButton(
+                    onClick = onRough,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text("Rough", fontSize = 13.sp)
                 }
             }
         }

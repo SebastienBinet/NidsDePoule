@@ -28,6 +28,7 @@ class SessionRecorder(context: Context) {
     private lateinit var gyroWriter: CsvWriter
     private lateinit var magWriter: CsvWriter
     private lateinit var gpsWriter: CsvWriter
+    private lateinit var eventWriter: CsvWriter
 
     private val ioThread = HandlerThread("csv-io").apply { start() }
     private val ioHandler = Handler(ioThread.looper)
@@ -36,6 +37,7 @@ class SessionRecorder(context: Context) {
     @Volatile var gyroCount = 0L; private set
     @Volatile var magCount = 0L; private set
     @Volatile var gpsCount = 0L; private set
+    @Volatile var eventCount = 0L; private set
     @Volatile var totalBytes = 0L; private set
     @Volatile var startTimeMs = 0L; private set
 
@@ -54,6 +56,10 @@ class SessionRecorder(context: Context) {
         gpsWriter = CsvWriter(
             File(sessionDir, "gps_$sessionId.csv"),
             "timestamp_ms,lat_deg,lon_deg,altitude_m,speed_mps,bearing_deg,accuracy_m,vertical_accuracy_m,speed_accuracy_mps,bearing_accuracy_deg"
+        )
+        eventWriter = CsvWriter(
+            File(sessionDir, "events_$sessionId.csv"),
+            "timestamp_ms,event_type,source"
         )
 
         metadata = SessionMetadata(sessionId = sessionId, sensors = sensors)
@@ -105,6 +111,19 @@ class SessionRecorder(context: Context) {
         }
     }
 
+    /**
+     * Record a user-generated event (BT button press, on-screen tap, etc.).
+     * @param eventType e.g. "pothole", "crack", "rough", "other"
+     * @param source e.g. "bt_button", "screen_button", "volume_key"
+     */
+    fun writeEvent(eventType: String, source: String) {
+        ioHandler.post {
+            eventWriter.writeLine("${System.currentTimeMillis()},$eventType,$source")
+            eventCount++
+            totalBytes = computeTotalBytes()
+        }
+    }
+
     fun stop() {
         // Post the close operations to the I/O thread so all pending writes finish first
         ioHandler.post {
@@ -112,6 +131,7 @@ class SessionRecorder(context: Context) {
             gyroWriter.close()
             magWriter.close()
             gpsWriter.close()
+            eventWriter.close()
 
             metadata.endTimeEpochMs = System.currentTimeMillis()
             metadata.sampleCounts = mapOf(
@@ -119,12 +139,14 @@ class SessionRecorder(context: Context) {
                 "gyro" to gyroCount,
                 "mag" to magCount,
                 "gps" to gpsCount,
+                "events" to eventCount,
             )
             metadata.fileSizesBytes = mapOf(
                 "accel" to accelWriter.bytesWritten,
                 "gyro" to gyroWriter.bytesWritten,
                 "mag" to magWriter.bytesWritten,
                 "gps" to gpsWriter.bytesWritten,
+                "events" to eventWriter.bytesWritten,
             )
             metadata.writeTo(File(sessionDir, "meta_$sessionId.json"))
         }
@@ -164,7 +186,7 @@ class SessionRecorder(context: Context) {
     }
 
     private fun computeTotalBytes(): Long =
-        accelWriter.bytesWritten + gyroWriter.bytesWritten + magWriter.bytesWritten + gpsWriter.bytesWritten
+        accelWriter.bytesWritten + gyroWriter.bytesWritten + magWriter.bytesWritten + gpsWriter.bytesWritten + eventWriter.bytesWritten
 }
 
 data class SessionSummary(

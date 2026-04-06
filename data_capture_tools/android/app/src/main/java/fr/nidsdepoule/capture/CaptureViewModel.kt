@@ -37,6 +37,9 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     private val _durationMs = MutableStateFlow(0L)
     val durationMs: StateFlow<Long> = _durationMs
 
+    private val _eventCount = MutableStateFlow(0L)
+    val eventCount: StateFlow<Long> = _eventCount
+
     private val _sessions = MutableStateFlow<List<SessionSummary>>(emptyList())
     val sessions: StateFlow<List<SessionSummary>> = _sessions
 
@@ -74,6 +77,7 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
                 _gpsHz.value = svc.gpsHz.value
                 _totalBytes.value = svc.totalBytes.value
                 _durationMs.value = svc.durationMs.value
+                _eventCount.value = svc.eventCount.value
                 delay(500)
             }
         }
@@ -89,6 +93,29 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
             delay(500) // Wait for I/O thread to finish
             refreshSessions()
         }
+    }
+
+    fun recordEvent(eventType: String, source: String) {
+        service?.recordEvent(eventType, source)
+    }
+
+    /**
+     * Called from MainActivity.onKeyDown() when a BT remote key is pressed.
+     * Maps volume keys to event types.
+     */
+    fun onHardwareKey(keyCode: Int): Boolean {
+        if (!_isRecording.value) return false
+        val eventType = when (keyCode) {
+            android.view.KeyEvent.KEYCODE_VOLUME_UP -> "pothole"
+            android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> "other"
+            android.view.KeyEvent.KEYCODE_CAMERA -> "pothole"
+            android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "pothole"
+            android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> "other"
+            android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "other"
+            else -> return false
+        }
+        recordEvent(eventType, "bt_button")
+        return true
     }
 
     fun deleteSession(sessionId: String) {
