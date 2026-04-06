@@ -114,7 +114,7 @@ async def delete_hits(request: Request) -> JSONResponse:
     return JSONResponse(content={"deleted": deleted})
 
 
-def _hit_to_detail(record: dict) -> dict | None:
+def _hit_to_detail(record: dict, include_waveform: bool = True) -> dict | None:
     """Convert a raw storage record to a detailed JSON object for the UI.
 
     Returns None if the record is too malformed to display.
@@ -156,8 +156,9 @@ def _hit_to_detail(record: dict) -> dict | None:
                 "baseline_mg": _int(pat.get("baseline_mg")),
                 "peak_to_baseline_ratio": _int(pat.get("peak_to_baseline_ratio")),
                 "waveform_samples": len(_list(pat.get("waveform_vertical"))),
-                "waveform_vertical": _list(pat.get("waveform_vertical")),
-                "waveform_lateral": _list(pat.get("waveform_lateral")),
+                **({"waveform_vertical": _list(pat.get("waveform_vertical")),
+                    "waveform_lateral": _list(pat.get("waveform_lateral"))}
+                   if include_waveform else {}),
                 "peak_index": _int(pat.get("peak_index", -1)),
                 "detection_reason": pat.get("detection_reason", ""),
             },
@@ -205,7 +206,7 @@ async def get_recent_hits(
     details = []
     skipped = 0
     for r in raw_hits:
-        d = _hit_to_detail(r)
+        d = _hit_to_detail(r, include_waveform=False)
         if d is not None:
             details.append(d)
         else:
@@ -224,6 +225,29 @@ async def get_recent_hits(
 
     return JSONResponse(content={"hits": details, "total": len(details),
                                  "skipped": skipped})
+
+
+@router.get("/hits/{record_id}")
+async def get_hit_detail(record_id: int) -> JSONResponse:
+    """Return full detail for a single hit, including waveform data."""
+    from server.main import get_storage
+
+    try:
+        raw_hits = get_storage().read_all_hits()
+    except Exception as exc:
+        log.error("read_all_hits_failed", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+    for r in raw_hits:
+        rid = r.get("record_id") if isinstance(r, dict) else 0
+        if rid == record_id:
+            d = _hit_to_detail(r, include_waveform=True)
+            if d is not None:
+                return JSONResponse(content=d)
+            return JSONResponse(status_code=500,
+                                content={"error": "record malformed"})
+
+    return JSONResponse(status_code=404, content={"error": "not found"})
 
 
 @router.get("/debug/hits")

@@ -553,7 +553,7 @@ function loadHits() {
         <td class="${srcClass}">${h.source_label}${h.pattern.detection_reason ? ' <small style="color:#999">(' + h.pattern.detection_reason.replace('_', '-').slice(0,5) + ')</small>' : ''}</td>
         <td class="${sevClass}">${h.pattern.severity}</td>
         <td style="color:${intensityColor(peakMg)};font-weight:700">${peakMg} mg</td>
-        <td class="wf-spark"><canvas id="spark-${h.record_id}" width="80" height="24"></canvas></td>
+        <td class="wf-spark">${h.pattern.waveform_samples > 0 ? `<canvas id="spark-${h.record_id}" width="80" height="24" title="Click row to see waveform"></canvas>` : '-'}</td>
         <td>
           <button class="fb-btn fb-good${goodSel}" onclick="event.stopPropagation();setFeedback(${h.record_id},'good',this)">&#x2713;</button>
           <button class="fb-btn fb-bad${badSel}" onclick="event.stopPropagation();setFeedback(${h.record_id},'bad',this)">&#x2717;</button>
@@ -568,9 +568,25 @@ function loadHits() {
       tr.style.cursor = 'pointer';
       tr.onclick = () => flyToHit(h, i, tr);
       tbody.appendChild(tr);
-      // Render sparkline after DOM insertion.
-      if (h.pattern.waveform_vertical && h.pattern.waveform_vertical.length > 0) {
-        setTimeout(() => drawSparkline(`spark-${h.record_id}`, h.pattern.waveform_vertical, h.pattern.peak_index), 0);
+      // Sparklines: fetch waveform lazily for visible rows on scroll, or draw placeholder.
+      if (h.pattern.waveform_samples > 0) {
+        const cid = `spark-${h.record_id}`;
+        const rid = h.record_id;
+        const pi = h.pattern.peak_index;
+        // Draw a simple placeholder bar showing peak position.
+        setTimeout(() => {
+          const c = document.getElementById(cid);
+          if (!c) return;
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = '#f3f4f6'; ctx.fillRect(0, 0, 80, 24);
+          if (pi >= 0 && h.pattern.waveform_samples > 1) {
+            const px = (pi / (h.pattern.waveform_samples - 1)) * 80;
+            ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, 24); ctx.stroke();
+          }
+          ctx.fillStyle = '#d1d5db'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+          ctx.fillText(h.pattern.waveform_samples + ' pts', 40, 16);
+        }, 0);
       }
     });
 
@@ -594,7 +610,7 @@ function flyToHit(h, idx, tr) {
 function showHitPopup(h) {
   if (currentPopup) currentPopup.remove();
   const wfHtml = h.pattern.waveform_samples > 0
-    ? `<div class="waveform-mini"><canvas id="wf-canvas" width="280" height="60"></canvas></div>` : '';
+    ? `<div class="waveform-mini"><canvas id="wf-canvas" width="280" height="60"></canvas><div id="wf-loading" style="font-size:10px;color:#999">Loading waveform...</div></div>` : '';
 
   const html = `
     <div class="popup-title">${h.source_label}</div>
@@ -617,9 +633,18 @@ function showHitPopup(h) {
     .setHTML(html)
     .addTo(map);
 
-  // Draw waveform after popup DOM is added.
+  // Fetch waveform on demand (not included in list endpoint to keep it fast).
   if (h.pattern.waveform_samples > 0) {
-    setTimeout(() => drawWaveform(h.pattern.waveform_vertical, h.pattern.waveform_lateral, h.pattern.peak_index), 50);
+    fetch(`/api/v1/hits/${h.record_id}`).then(r => r.json()).then(detail => {
+      const el = document.getElementById('wf-loading');
+      if (el) el.remove();
+      if (detail.pattern && detail.pattern.waveform_vertical) {
+        drawWaveform(detail.pattern.waveform_vertical, detail.pattern.waveform_lateral || [], detail.pattern.peak_index);
+      }
+    }).catch(() => {
+      const el = document.getElementById('wf-loading');
+      if (el) el.textContent = 'Failed to load waveform';
+    });
   }
 }
 
