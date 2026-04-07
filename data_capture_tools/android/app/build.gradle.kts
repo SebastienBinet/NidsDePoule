@@ -1,7 +1,16 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Read version code from Version.kt
+val versionFile = file("src/main/java/fr/nidsdepoule/capture/Version.kt")
+val versionCode = Regex("""const val CODE = "v(\d+)"""").find(versionFile.readText())
+    ?.groupValues?.get(1)?.toIntOrNull() ?: 1
+val versionLabel = "v%03d".format(versionCode)
 
 android {
     namespace = "fr.nidsdepoule.capture"
@@ -11,13 +20,17 @@ android {
         applicationId = "fr.nidsdepoule.capture"
         minSdk = 31
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        this.versionCode = versionCode
+        versionName = versionLabel
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        val buildTime = SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())
+        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
+        buildConfigField("String", "VERSION_LABEL", "\"$versionLabel\"")
     }
 
     buildTypes {
@@ -44,6 +57,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
@@ -53,6 +67,14 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    // Name APK outputs with version prefix: v001-SensorCapture-debug.apk
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output.outputFileName = "$versionLabel-SensorCapture-${buildType.name}.apk"
         }
     }
 }

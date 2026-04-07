@@ -45,7 +45,7 @@ def _load_sensor_csv(
     files = list(session_dir.glob(f"{prefix}_*.csv"))
     if not files:
         return None
-    df = pd.read_csv(files[0])
+    df = pd.read_csv(files[0], comment="#")
     if "timestamp_ns" in df.columns and start_boot_ns > 0:
         df["time_s"] = (df["timestamp_ns"] - start_boot_ns) / 1e9
     elif "timestamp_ns" in df.columns:
@@ -59,7 +59,7 @@ def _load_gps_csv(
     files = list(session_dir.glob("gps_*.csv"))
     if not files:
         return None
-    df = pd.read_csv(files[0])
+    df = pd.read_csv(files[0], comment="#")
     if "timestamp_ms" in df.columns:
         start_epoch_ms = boot_offset_ms + start_boot_ns / 1e6
         df["time_s"] = (df["timestamp_ms"] - start_epoch_ms) / 1e3

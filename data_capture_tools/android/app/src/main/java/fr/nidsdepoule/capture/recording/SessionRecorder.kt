@@ -4,6 +4,7 @@ import android.content.Context
 import android.location.Location
 import android.os.Handler
 import android.os.HandlerThread
+import fr.nidsdepoule.capture.Version
 import fr.nidsdepoule.capture.sensor.SensorInfo
 import java.io.File
 import java.text.SimpleDateFormat
@@ -51,16 +52,17 @@ class SessionRecorder(context: Context) {
 
         sessionDir = File(baseDir, "session_$sessionId").apply { mkdirs() }
 
-        accelWriter = CsvWriter(File(sessionDir, "accel_$sessionId.csv"), "timestamp_ns,x_ms2,y_ms2,z_ms2")
-        gyroWriter = CsvWriter(File(sessionDir, "gyro_$sessionId.csv"), "timestamp_ns,x_rads,y_rads,z_rads")
-        magWriter = CsvWriter(File(sessionDir, "mag_$sessionId.csv"), "timestamp_ns,x_ut,y_ut,z_ut")
+        val ver = Version.CODE
+        accelWriter = CsvWriter(File(sessionDir, "accel_$sessionId.csv"), "# $ver\ntimestamp_ns,x_ms2,y_ms2,z_ms2")
+        gyroWriter = CsvWriter(File(sessionDir, "gyro_$sessionId.csv"), "# $ver\ntimestamp_ns,x_rads,y_rads,z_rads")
+        magWriter = CsvWriter(File(sessionDir, "mag_$sessionId.csv"), "# $ver\ntimestamp_ns,x_ut,y_ut,z_ut")
         gpsWriter = CsvWriter(
             File(sessionDir, "gps_$sessionId.csv"),
-            "timestamp_ms,lat_deg,lon_deg,altitude_m,speed_mps,bearing_deg,accuracy_m,vertical_accuracy_m,speed_accuracy_mps,bearing_accuracy_deg"
+            "# $ver\ntimestamp_ms,lat_deg,lon_deg,altitude_m,speed_mps,bearing_deg,accuracy_m,vertical_accuracy_m,speed_accuracy_mps,bearing_accuracy_deg"
         )
         eventWriter = CsvWriter(
             File(sessionDir, "events_$sessionId.csv"),
-            "timestamp_ms,event_type,source"
+            "# $ver\ntimestamp_ms,event_type,source"
         )
 
         // Start continuous audio recording

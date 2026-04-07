@@ -1,6 +1,7 @@
 package fr.nidsdepoule.capture.recording
 
 import android.os.Build
+import fr.nidsdepoule.capture.Version
 import fr.nidsdepoule.capture.sensor.SensorInfo
 import org.json.JSONObject
 import java.io.File
@@ -13,7 +14,7 @@ data class SessionMetadata(
     val sessionId: String,
     val deviceModel: String = "${Build.MANUFACTURER} ${Build.MODEL}",
     val androidVersion: String = Build.VERSION.RELEASE,
-    val appVersion: String = "1.0",
+    val appVersion: String = Version.CODE,
     val startTimeEpochMs: Long = System.currentTimeMillis(),
     val startBootTimeNs: Long = android.os.SystemClock.elapsedRealtimeNanos(),
     val bootToEpochOffsetMs: Long = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime(),

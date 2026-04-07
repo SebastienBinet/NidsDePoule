@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.nidsdepoule.capture.CaptureViewModel
+import fr.nidsdepoule.capture.BuildConfig
 import fr.nidsdepoule.capture.recording.SessionSummary
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,7 +60,16 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Sensor Capture") },
+                title = {
+                    Column {
+                        Text("Sensor Capture")
+                        Text(
+                            "${BuildConfig.VERSION_LABEL} — ${BuildConfig.BUILD_TIME}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                 ),
