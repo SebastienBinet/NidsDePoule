@@ -29,6 +29,7 @@ class SessionRecorder(context: Context) {
     private lateinit var magWriter: CsvWriter
     private lateinit var gpsWriter: CsvWriter
     private lateinit var eventWriter: CsvWriter
+    private val audioRecorder = AudioRecorder()
 
     private val ioThread = HandlerThread("csv-io").apply { start() }
     private val ioHandler = Handler(ioThread.looper)
@@ -61,6 +62,9 @@ class SessionRecorder(context: Context) {
             File(sessionDir, "events_$sessionId.csv"),
             "timestamp_ms,event_type,source"
         )
+
+        // Start continuous audio recording
+        audioRecorder.start(File(sessionDir, "audio_$sessionId.wav"))
 
         metadata = SessionMetadata(sessionId = sessionId, sensors = sensors)
         startTimeMs = System.currentTimeMillis()
@@ -125,6 +129,9 @@ class SessionRecorder(context: Context) {
     }
 
     fun stop() {
+        // Stop audio recording first (runs on its own thread)
+        audioRecorder.stop()
+
         // Post the close operations to the I/O thread so all pending writes finish first
         ioHandler.post {
             accelWriter.close()
@@ -147,6 +154,7 @@ class SessionRecorder(context: Context) {
                 "mag" to magWriter.bytesWritten,
                 "gps" to gpsWriter.bytesWritten,
                 "events" to eventWriter.bytesWritten,
+                "audio" to audioRecorder.bytesWritten,
             )
             metadata.writeTo(File(sessionDir, "meta_$sessionId.json"))
         }
@@ -186,7 +194,7 @@ class SessionRecorder(context: Context) {
     }
 
     private fun computeTotalBytes(): Long =
-        accelWriter.bytesWritten + gyroWriter.bytesWritten + magWriter.bytesWritten + gpsWriter.bytesWritten + eventWriter.bytesWritten
+        accelWriter.bytesWritten + gyroWriter.bytesWritten + magWriter.bytesWritten + gpsWriter.bytesWritten + eventWriter.bytesWritten + audioRecorder.bytesWritten
 }
 
 data class SessionSummary(

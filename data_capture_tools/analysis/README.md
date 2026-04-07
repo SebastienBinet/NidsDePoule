@@ -45,6 +45,19 @@ timestamp_ms,lat_deg,lon_deg,altitude_m,speed_mps,bearing_deg,accuracy_m,vertica
 ```
 - Wall-clock milliseconds, full double precision lat/lon
 
+### events_{session}.csv
+```
+timestamp_ms,event_type,source
+```
+- Ground-truth labels from BT remote button presses or on-screen taps
+- `event_type`: "pothole", "crack", "rough", "other"
+- `source`: "bt_button", "screen_button"
+
+### audio_{session}.wav
+- Continuous microphone recording (mono, 16-bit PCM, 16 kHz)
+- ~1.9 MB/minute (~115 MB/hour)
+- Captures voice labels ("nid!", "gros nid!") and road impact sounds
+
 ### meta_{session}.json
 Contains device model, sensor hardware info, `boot_to_epoch_offset_ms` for
 converting sensor timestamps to wall-clock time, sample counts, and file sizes.
