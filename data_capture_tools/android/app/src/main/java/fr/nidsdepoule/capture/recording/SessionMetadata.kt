@@ -21,6 +21,11 @@ data class SessionMetadata(
     var endTimeEpochMs: Long = 0L,
     var sampleCounts: Map<String, Long> = emptyMap(),
     var fileSizesBytes: Map<String, Long> = emptyMap(),
+    // Post-capture annotation fields
+    var routeOrigin: String = "",
+    var routeDestination: String = "",
+    var labelingMethod: String = "",      // "Boutons", "Boutons+Voix", "Voix"
+    var labelingReliability: String = "", // "Boutons très fiable", etc.
 ) {
     private val isoFormat: SimpleDateFormat
         get() = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
@@ -64,6 +69,16 @@ data class SessionMetadata(
             sizesObj.put(key, size)
         }
         put("file_sizes_bytes", sizesObj)
+
+        // Route and labeling annotation
+        if (routeOrigin.isNotBlank() || routeDestination.isNotBlank()) {
+            put("route", JSONObject().apply {
+                put("origin", routeOrigin)
+                put("destination", routeDestination)
+            })
+        }
+        if (labelingMethod.isNotBlank()) put("labeling_method", labelingMethod)
+        if (labelingReliability.isNotBlank()) put("labeling_reliability", labelingReliability)
     }
 
     fun writeTo(file: File) {

@@ -176,16 +176,62 @@ class SessionRecorder(context: Context) {
                 if (metaFile != null) {
                     try {
                         val json = org.json.JSONObject(metaFile.readText())
+                        val route = json.optJSONObject("route")
+                        val origin = route?.optString("origin", "") ?: ""
+                        val dest = route?.optString("destination", "") ?: ""
+                        val counts = json.optJSONObject("sample_counts")
+                        val eventCountVal = counts?.optLong("events", 0) ?: 0
                         SessionSummary(
                             sessionId = json.getString("session_id"),
                             startTimeIso = json.optString("start_time_iso", ""),
                             sizeBytes = dir.listFiles()?.sumOf { it.length() } ?: 0,
                             directory = dir,
+                            routeOrigin = origin,
+                            routeDestination = dest,
+                            eventCount = eventCountVal,
+                            labelingMethod = json.optString("labeling_method", ""),
                         )
                     } catch (_: Exception) { null }
                 } else null
             }
             ?: emptyList()
+    }
+
+    /**
+     * Update the session metadata with post-capture annotations.
+     * Rewrites meta JSON with route and labeling info.
+     */
+    fun annotateLastSession(
+        routeOrigin: String,
+        routeDestination: String,
+        labelingMethod: String,
+        labelingReliability: String,
+    ) {
+        if (!::metadata.isInitialized) return
+        metadata.routeOrigin = routeOrigin
+        metadata.routeDestination = routeDestination
+        metadata.labelingMethod = labelingMethod
+        metadata.labelingReliability = labelingReliability
+        // Rewrite the meta file
+        if (::sessionDir.isInitialized && ::sessionId.isInitialized) {
+            metadata.writeTo(File(sessionDir, "meta_$sessionId.json"))
+        }
+    }
+
+    /** Returns event counts by type for the current/last session. */
+    fun getEventCountsByType(): Map<String, Long> {
+        if (!::sessionDir.isInitialized || !::sessionId.isInitialized) return emptyMap()
+        val eventsFile = File(sessionDir, "events_$sessionId.csv")
+        if (!eventsFile.exists()) return emptyMap()
+        val counts = mutableMapOf<String, Long>()
+        eventsFile.readLines().drop(1).forEach { line ->
+            val parts = line.split(",")
+            if (parts.size >= 2) {
+                val type = parts[1].trim()
+                counts[type] = (counts[type] ?: 0) + 1
+            }
+        }
+        return counts
     }
 
     fun deleteSession(sessionId: String) {
@@ -202,4 +248,8 @@ data class SessionSummary(
     val startTimeIso: String,
     val sizeBytes: Long,
     val directory: File,
+    val routeOrigin: String = "",
+    val routeDestination: String = "",
+    val eventCount: Long = 0,
+    val labelingMethod: String = "",
 )

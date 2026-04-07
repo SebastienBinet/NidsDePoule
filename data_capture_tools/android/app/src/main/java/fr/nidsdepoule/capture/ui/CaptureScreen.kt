@@ -33,6 +33,28 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     val durationMs by viewModel.durationMs.collectAsState()
     val eventCount by viewModel.eventCount.collectAsState()
     val sessions by viewModel.sessions.collectAsState()
+    val showStopDialog by viewModel.showStopDialog.collectAsState()
+    val lastSessionId by viewModel.lastSessionId.collectAsState()
+    val lastDurationMs by viewModel.lastDurationMs.collectAsState()
+    val lastEventCounts by viewModel.lastEventCounts.collectAsState()
+
+    // Post-capture annotation dialog
+    if (showStopDialog) {
+        StopSessionDialog(
+            sessionId = lastSessionId,
+            durationMs = lastDurationMs,
+            eventCounts = lastEventCounts,
+            onConfirm = { annotation ->
+                viewModel.annotateSession(
+                    routeOrigin = annotation.routeOrigin,
+                    routeDestination = annotation.routeDestination,
+                    labelingMethod = annotation.labelingMethod,
+                    labelingReliability = annotation.labelingReliability,
+                )
+            },
+            onDismiss = { viewModel.dismissStopDialog() },
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -234,8 +256,24 @@ private fun SessionCard(session: SessionSummary, onDelete: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                // Session ID (date_time)
                 Text(session.sessionId, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
-                Text(formatBytes(session.sizeBytes), fontSize = 12.sp, color = Color.Gray)
+                // Route if available
+                if (session.routeOrigin.isNotBlank() || session.routeDestination.isNotBlank()) {
+                    val route = buildString {
+                        if (session.routeOrigin.isNotBlank()) append(session.routeOrigin)
+                        if (session.routeOrigin.isNotBlank() && session.routeDestination.isNotBlank()) append(" \u2192 ")
+                        if (session.routeDestination.isNotBlank()) append(session.routeDestination)
+                    }
+                    Text(route, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+                // Size + events
+                val info = buildString {
+                    append(formatBytes(session.sizeBytes))
+                    if (session.eventCount > 0) append(" | ${session.eventCount} evt")
+                    if (session.labelingMethod.isNotBlank()) append(" | ${session.labelingMethod}")
+                }
+                Text(info, fontSize = 12.sp, color = Color.Gray)
             }
             TextButton(onClick = onDelete) {
                 Text("Delete", color = MaterialTheme.colorScheme.error)

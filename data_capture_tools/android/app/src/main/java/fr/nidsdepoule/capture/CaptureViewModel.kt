@@ -43,6 +43,16 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     private val _sessions = MutableStateFlow<List<SessionSummary>>(emptyList())
     val sessions: StateFlow<List<SessionSummary>> = _sessions
 
+    // Post-capture dialog state
+    private val _showStopDialog = MutableStateFlow(false)
+    val showStopDialog: StateFlow<Boolean> = _showStopDialog
+    private val _lastSessionId = MutableStateFlow("")
+    val lastSessionId: StateFlow<String> = _lastSessionId
+    private val _lastDurationMs = MutableStateFlow(0L)
+    val lastDurationMs: StateFlow<Long> = _lastDurationMs
+    private val _lastEventCounts = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val lastEventCounts: StateFlow<Map<String, Long>> = _lastEventCounts
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             service = (binder as CaptureService.LocalBinder).service
@@ -88,11 +98,44 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun stopRecording() {
-        service?.stopRecording()
+        val svc = service ?: return
+        // Capture info before stopping
+        _lastDurationMs.value = svc.durationMs.value
+        _lastEventCounts.value = svc.getEventCountsByType()
+        _lastSessionId.value = svc.getRecorder().let {
+            // sessionId is set during start(); grab it via the recorder
+            _lastDurationMs.value // trigger read
+            svc.durationMs.value
+            "" // will be set below
+        }
+
+        svc.stopRecording()
+
+        // Get the session ID from the most recent session
         viewModelScope.launch {
             delay(500) // Wait for I/O thread to finish
             refreshSessions()
+            val latest = _sessions.value.firstOrNull()
+            if (latest != null) {
+                _lastSessionId.value = latest.sessionId
+            }
+            _showStopDialog.value = true
         }
+    }
+
+    fun annotateSession(
+        routeOrigin: String,
+        routeDestination: String,
+        labelingMethod: String,
+        labelingReliability: String,
+    ) {
+        service?.annotateSession(routeOrigin, routeDestination, labelingMethod, labelingReliability)
+        _showStopDialog.value = false
+        refreshSessions()
+    }
+
+    fun dismissStopDialog() {
+        _showStopDialog.value = false
     }
 
     fun recordEvent(eventType: String, source: String) {

@@ -131,6 +131,17 @@ class CaptureService : Service() {
         _eventCount.value = recorder.eventCount
     }
 
+    fun annotateSession(
+        routeOrigin: String,
+        routeDestination: String,
+        labelingMethod: String,
+        labelingReliability: String,
+    ) {
+        recorder.annotateLastSession(routeOrigin, routeDestination, labelingMethod, labelingReliability)
+    }
+
+    fun getEventCountsByType(): Map<String, Long> = recorder.getEventCountsByType()
+
     fun getRecorder(): SessionRecorder = recorder
 
     private fun updateRates() {
