@@ -30,11 +30,13 @@ fun StopSessionDialog(
     sessionId: String,
     durationMs: Long,
     eventCounts: Map<String, Long>,
+    suggestedOrigin: String = "",
+    suggestedDestination: String = "",
     onConfirm: (SessionAnnotation) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var origin by remember { mutableStateOf("") }
-    var destination by remember { mutableStateOf("") }
+    var origin by remember { mutableStateOf(suggestedOrigin) }
+    var destination by remember { mutableStateOf(suggestedDestination) }
     var selectedMethod by remember { mutableStateOf("") }
     var selectedReliability by remember { mutableStateOf("") }
 

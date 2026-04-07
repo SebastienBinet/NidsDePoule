@@ -10,10 +10,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fr.nidsdepoule.capture.recording.SessionSummary
 import fr.nidsdepoule.capture.service.CaptureService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class CaptureViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -52,6 +54,10 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     val lastDurationMs: StateFlow<Long> = _lastDurationMs
     private val _lastEventCounts = MutableStateFlow<Map<String, Long>>(emptyMap())
     val lastEventCounts: StateFlow<Map<String, Long>> = _lastEventCounts
+    private val _suggestedOrigin = MutableStateFlow("")
+    val suggestedOrigin: StateFlow<String> = _suggestedOrigin
+    private val _suggestedDestination = MutableStateFlow("")
+    val suggestedDestination: StateFlow<String> = _suggestedDestination
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -94,26 +100,27 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun startRecording() {
-        service?.startRecording()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { service?.startRecording() }
+        }
     }
 
     fun stopRecording() {
         val svc = service ?: return
-        // Capture info before stopping
         _lastDurationMs.value = svc.durationMs.value
-        _lastEventCounts.value = svc.getEventCountsByType()
-        _lastSessionId.value = svc.getRecorder().let {
-            // sessionId is set during start(); grab it via the recorder
-            _lastDurationMs.value // trigger read
-            svc.durationMs.value
-            "" // will be set below
-        }
 
-        svc.stopRecording()
-
-        // Get the session ID from the most recent session
+        // All blocking work (file I/O, geocoding, thread joins) off the main thread
         viewModelScope.launch {
-            delay(500) // Wait for I/O thread to finish
+            val eventCounts = withContext(Dispatchers.IO) { svc.getEventCountsByType() }
+            _lastEventCounts.value = eventCounts
+
+            // Reverse-geocode before stopping (GPS still has fixes)
+            val suggestion = withContext(Dispatchers.IO) { svc.getRouteSuggestion() }
+            _suggestedOrigin.value = suggestion?.origin ?: ""
+            _suggestedDestination.value = suggestion?.destination ?: ""
+
+            withContext(Dispatchers.IO) { svc.stopRecording() }
+
             refreshSessions()
             val latest = _sessions.value.firstOrNull()
             if (latest != null) {
@@ -129,9 +136,13 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
         labelingMethod: String,
         labelingReliability: String,
     ) {
-        service?.annotateSession(routeOrigin, routeDestination, labelingMethod, labelingReliability)
         _showStopDialog.value = false
-        refreshSessions()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                service?.annotateSession(routeOrigin, routeDestination, labelingMethod, labelingReliability)
+            }
+            refreshSessions()
+        }
     }
 
     fun dismissStopDialog() {
@@ -168,10 +179,9 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
 
     fun refreshSessions() {
         viewModelScope.launch {
-            val recorder = service?.getRecorder()
-            if (recorder != null) {
-                _sessions.value = recorder.listSessions()
-            }
+            val recorder = service?.getRecorder() ?: return@launch
+            val list = withContext(Dispatchers.IO) { recorder.listSessions() }
+            _sessions.value = list
         }
     }
 

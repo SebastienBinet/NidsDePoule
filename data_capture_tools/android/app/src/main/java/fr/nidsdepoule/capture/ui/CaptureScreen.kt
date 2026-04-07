@@ -38,6 +38,8 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     val lastSessionId by viewModel.lastSessionId.collectAsState()
     val lastDurationMs by viewModel.lastDurationMs.collectAsState()
     val lastEventCounts by viewModel.lastEventCounts.collectAsState()
+    val suggestedOrigin by viewModel.suggestedOrigin.collectAsState()
+    val suggestedDestination by viewModel.suggestedDestination.collectAsState()
 
     // Post-capture annotation dialog
     if (showStopDialog) {
@@ -45,6 +47,8 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
             sessionId = lastSessionId,
             durationMs = lastDurationMs,
             eventCounts = lastEventCounts,
+            suggestedOrigin = suggestedOrigin,
+            suggestedDestination = suggestedDestination,
             onConfirm = { annotation ->
                 viewModel.annotateSession(
                     routeOrigin = annotation.routeOrigin,

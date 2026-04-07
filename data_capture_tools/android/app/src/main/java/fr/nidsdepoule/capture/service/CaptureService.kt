@@ -6,10 +6,12 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.location.Location
 import android.os.Binder
 import android.os.IBinder
 import fr.nidsdepoule.capture.R
 import fr.nidsdepoule.capture.location.LocationCollector
+import fr.nidsdepoule.capture.location.RouteNamer
 import fr.nidsdepoule.capture.recording.SessionRecorder
 import fr.nidsdepoule.capture.sensor.SensorCollector
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,6 +65,8 @@ class CaptureService : Service() {
     val eventCount: StateFlow<Long> = _eventCount
 
     private var gpsRateCount = 0L
+    private var firstGpsFix: Location? = null
+    private var lastGpsFix: Location? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -87,6 +91,7 @@ class CaptureService : Service() {
 
         lastRateResetMs = System.currentTimeMillis()
         accelRateCount = 0; gyroRateCount = 0; magRateCount = 0; gpsRateCount = 0
+        firstGpsFix = null; lastGpsFix = null
 
         sensorCollector.start(
             onAccel = { ts, x, y, z ->
@@ -107,6 +112,8 @@ class CaptureService : Service() {
         locationCollector.start { location ->
             recorder.writeGps(location)
             gpsRateCount++
+            if (firstGpsFix == null) firstGpsFix = location
+            lastGpsFix = location
         }
 
         _isRecording.value = true
@@ -141,6 +148,10 @@ class CaptureService : Service() {
     }
 
     fun getEventCountsByType(): Map<String, Long> = recorder.getEventCountsByType()
+
+    /** Reverse-geocode first/last GPS fix to suggest origin/destination. Call from IO thread. */
+    fun getRouteSuggestion(): RouteNamer.RouteSuggestion? =
+        RouteNamer.suggest(this, firstGpsFix, lastGpsFix)
 
     fun getRecorder(): SessionRecorder = recorder
 

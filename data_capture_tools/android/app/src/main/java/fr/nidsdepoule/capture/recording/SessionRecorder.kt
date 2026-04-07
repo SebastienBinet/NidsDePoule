@@ -5,6 +5,7 @@ import android.location.Location
 import android.os.Handler
 import android.os.HandlerThread
 import fr.nidsdepoule.capture.Version
+import fr.nidsdepoule.capture.location.RouteNamer
 import fr.nidsdepoule.capture.sensor.SensorInfo
 import java.io.File
 import java.text.SimpleDateFormat
@@ -171,7 +172,7 @@ class SessionRecorder(context: Context) {
     fun listSessions(): List<SessionSummary> {
         if (!baseDir.exists()) return emptyList()
         return baseDir.listFiles()
-            ?.filter { it.isDirectory && it.name.startsWith("session_") }
+            ?.filter { it.isDirectory && it.name.contains("session_") }
             ?.sortedByDescending { it.name }
             ?.mapNotNull { dir ->
                 val metaFile = dir.listFiles()?.find { it.name.startsWith("meta_") && it.name.endsWith(".json") }
@@ -214,6 +215,25 @@ class SessionRecorder(context: Context) {
         metadata.routeDestination = routeDestination
         metadata.labelingMethod = labelingMethod
         metadata.labelingReliability = labelingReliability
+
+        // Generate route abbreviation and add to metadata
+        if (routeOrigin.isNotBlank() || routeDestination.isNotBlank()) {
+            val abbrev = RouteNamer.buildAbbreviation(
+                routeOrigin.ifBlank { "?" },
+                routeDestination.ifBlank { "?" },
+            )
+            metadata.routeAbbreviation = abbrev
+
+            // Rename session directory to include abbreviation
+            if (::sessionDir.isInitialized && ::sessionId.isInitialized) {
+                val newName = "session_${sessionId}_$abbrev"
+                val newDir = File(sessionDir.parentFile, newName)
+                if (sessionDir.renameTo(newDir)) {
+                    sessionDir = newDir
+                }
+            }
+        }
+
         // Rewrite the meta file
         if (::sessionDir.isInitialized && ::sessionId.isInitialized) {
             metadata.writeTo(File(sessionDir, "meta_$sessionId.json"))

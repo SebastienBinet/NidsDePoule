@@ -25,6 +25,7 @@ data class SessionMetadata(
     // Post-capture annotation fields
     var routeOrigin: String = "",
     var routeDestination: String = "",
+    var routeAbbreviation: String = "",    // e.g. "Sher2SDen"
     var labelingMethod: String = "",      // "Boutons", "Boutons+Voix", "Voix"
     var labelingReliability: String = "", // "Boutons très fiable", etc.
 ) {
@@ -78,6 +79,7 @@ data class SessionMetadata(
                 put("destination", routeDestination)
             })
         }
+        if (routeAbbreviation.isNotBlank()) put("route_abbreviation", routeAbbreviation)
         if (labelingMethod.isNotBlank()) put("labeling_method", labelingMethod)
         if (labelingReliability.isNotBlank()) put("labeling_reliability", labelingReliability)
     }
