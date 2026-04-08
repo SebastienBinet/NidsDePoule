@@ -174,30 +174,44 @@ class SessionRecorder(private val context: Context) {
     fun listSessions(): List<SessionSummary> {
         if (!baseDir.exists()) return emptyList()
         return baseDir.listFiles()
-            ?.filter { it.isDirectory && it.name.contains("session_") }
+            ?.filter { it.isDirectory && it.name.startsWith("session_") }
             ?.sortedByDescending { it.name }
             ?.mapNotNull { dir ->
-                val metaFile = dir.listFiles()?.find { it.name.startsWith("meta_") && it.name.endsWith(".json") }
-                if (metaFile != null) {
-                    try {
+                try {
+                    val sizeBytes = dir.listFiles()?.sumOf { it.length() } ?: 0
+                    val metaFile = dir.listFiles()?.find { it.name.startsWith("meta_") && it.name.endsWith(".json") }
+                    if (metaFile != null) {
                         val json = org.json.JSONObject(metaFile.readText())
                         val route = json.optJSONObject("route")
-                        val origin = route?.optString("origin", "") ?: ""
-                        val dest = route?.optString("destination", "") ?: ""
-                        val counts = json.optJSONObject("sample_counts")
-                        val eventCountVal = counts?.optLong("events", 0) ?: 0
                         SessionSummary(
-                            sessionId = json.getString("session_id"),
+                            sessionId = json.optString("session_id", dir.name.removePrefix("session_")),
                             startTimeIso = json.optString("start_time_iso", ""),
-                            sizeBytes = dir.listFiles()?.sumOf { it.length() } ?: 0,
+                            sizeBytes = sizeBytes,
                             directory = dir,
-                            routeOrigin = origin,
-                            routeDestination = dest,
-                            eventCount = eventCountVal,
+                            routeOrigin = route?.optString("origin", "") ?: "",
+                            routeDestination = route?.optString("destination", "") ?: "",
+                            eventCount = json.optJSONObject("sample_counts")?.optLong("events", 0) ?: 0,
                             labelingMethod = json.optString("labeling_method", ""),
                         )
-                    } catch (_: Exception) { null }
-                } else null
+                    } else {
+                        // No meta file — still show the session (e.g. older versions, interrupted recording)
+                        SessionSummary(
+                            sessionId = dir.name.removePrefix("session_"),
+                            startTimeIso = "",
+                            sizeBytes = sizeBytes,
+                            directory = dir,
+                        )
+                    }
+                } catch (e: Exception) {
+                    // Parse error — show session with minimal info rather than hiding it
+                    android.util.Log.w("SessionRecorder", "Failed to parse session ${dir.name}", e)
+                    SessionSummary(
+                        sessionId = dir.name.removePrefix("session_"),
+                        startTimeIso = "",
+                        sizeBytes = dir.listFiles()?.sumOf { it.length() } ?: 0,
+                        directory = dir,
+                    )
+                }
             }
             ?: emptyList()
     }

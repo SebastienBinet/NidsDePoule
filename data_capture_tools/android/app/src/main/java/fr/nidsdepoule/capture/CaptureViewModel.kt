@@ -1,6 +1,8 @@
 package fr.nidsdepoule.capture
 
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -196,12 +198,16 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
                 val zipFile = File(shareDir, "${sessionDir.name}.zip")
                 zipDirectory(sessionDir, zipFile)
 
+                // Copy session directory name to clipboard (for pasting into the Google Sheet index)
+                val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("session_name", sessionDir.name))
+
                 // Create share intent via FileProvider
                 val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", zipFile)
                 Intent(Intent.ACTION_SEND).apply {
                     type = "application/zip"
                     putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_SUBJECT, "Sensor Capture: $sessionId")
+                    putExtra(Intent.EXTRA_SUBJECT, sessionDir.name)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
             }

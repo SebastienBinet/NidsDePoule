@@ -36,6 +36,7 @@ data class SessionMetadata(
         }
 
     fun toJson(): JSONObject = JSONObject().apply {
+        put("schema_version", 1)
         put("session_id", sessionId)
         put("device_model", deviceModel)
         put("android_version", androidVersion)
