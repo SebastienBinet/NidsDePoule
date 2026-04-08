@@ -88,6 +88,32 @@ When deploying a new version, update **both**:
 
 These must match. The version appears on the dashboard and in `/api/v1/debug/storage`.
 
+## Data Capture Tools (`data_capture_tools/`)
+
+Separate app and analysis tools for collecting raw sensor data to develop pothole detection algorithms. See `docs/architecture/014-capture-tools.md` for full ADR.
+
+### Capture App (Android, `data_capture_tools/android/`)
+
+```bash
+cd data_capture_tools/android
+./gradlew assembleDebug          # Build APK (output: v00X-SensorCapture-debug.apk)
+```
+
+- Package: `fr.nidsdepoule.capture` (separate from main app)
+- Sensors: accel + gyro + mag at SENSOR_DELAY_FASTEST (~500 Hz), GPS at 1 Hz, audio at 16 kHz
+- Version: single source in `Version.kt` (`const val CODE = "v00X"`). Increment before each commit.
+- Outputs per session: `accel_*.csv`, `gyro_*.csv`, `mag_*.csv`, `gps_*.csv`, `events_*.csv`, `audio_*.wav`, `meta_*.json`
+
+### Analysis (Python/Jupyter, `data_capture_tools/analysis/`)
+
+```bash
+cd data_capture_tools/analysis
+pip install -r requirements.txt
+jupyter notebook notebooks/01_explore_session.ipynb
+```
+
+Or open directly in Colab (self-contained, no local install needed).
+
 ## Testing
 
 Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. Key fixtures in `server/tests/conftest.py`:

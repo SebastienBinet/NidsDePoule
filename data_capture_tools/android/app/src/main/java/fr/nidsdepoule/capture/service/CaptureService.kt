@@ -143,8 +143,9 @@ class CaptureService : Service() {
         routeDestination: String,
         labelingMethod: String,
         labelingReliability: String,
+        comment: String = "",
     ) {
-        recorder.annotateLastSession(routeOrigin, routeDestination, labelingMethod, labelingReliability)
+        recorder.annotateLastSession(routeOrigin, routeDestination, labelingMethod, labelingReliability, comment)
     }
 
     fun getEventCountsByType(): Map<String, Long> = recorder.getEventCountsByType()

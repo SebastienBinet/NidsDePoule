@@ -28,6 +28,7 @@ data class SessionMetadata(
     var routeAbbreviation: String = "",    // e.g. "Sher2SDen"
     var labelingMethod: String = "",      // "Boutons", "Boutons+Voix", "Voix"
     var labelingReliability: String = "", // "Boutons très fiable", etc.
+    var comment: String = "",             // free text: "on a bike", "phone in pocket", etc.
 ) {
     private val isoFormat: SimpleDateFormat
         get() = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
@@ -82,6 +83,7 @@ data class SessionMetadata(
         if (routeAbbreviation.isNotBlank()) put("route_abbreviation", routeAbbreviation)
         if (labelingMethod.isNotBlank()) put("labeling_method", labelingMethod)
         if (labelingReliability.isNotBlank()) put("labeling_reliability", labelingReliability)
+        if (comment.isNotBlank()) put("comment", comment)
     }
 
     fun writeTo(file: File) {

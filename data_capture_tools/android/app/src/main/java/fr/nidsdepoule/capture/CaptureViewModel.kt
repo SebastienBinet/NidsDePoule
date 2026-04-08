@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fr.nidsdepoule.capture.recording.SessionSummary
@@ -16,6 +17,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class CaptureViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -58,6 +65,10 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     val suggestedOrigin: StateFlow<String> = _suggestedOrigin
     private val _suggestedDestination = MutableStateFlow("")
     val suggestedDestination: StateFlow<String> = _suggestedDestination
+
+    // Share intent for launching Android share sheet
+    private val _shareIntent = MutableStateFlow<Intent?>(null)
+    val shareIntent: StateFlow<Intent?> = _shareIntent
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -135,11 +146,12 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
         routeDestination: String,
         labelingMethod: String,
         labelingReliability: String,
+        comment: String = "",
     ) {
         _showStopDialog.value = false
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
-                service?.annotateSession(routeOrigin, routeDestination, labelingMethod, labelingReliability)
+                service?.annotateSession(routeOrigin, routeDestination, labelingMethod, labelingReliability, comment)
             }
             refreshSessions()
         }
@@ -172,9 +184,55 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
         return true
     }
 
+    fun shareSession(sessionId: String) {
+        viewModelScope.launch {
+            val intent = withContext(Dispatchers.IO) {
+                val recorder = service?.getRecorder() ?: return@withContext null
+                val sessionDir = recorder.findSessionDir(sessionId) ?: return@withContext null
+
+                // Zip session directory to cache
+                val ctx = getApplication<Application>()
+                val shareDir = File(ctx.cacheDir, "shared_sessions").apply { mkdirs() }
+                val zipFile = File(shareDir, "${sessionDir.name}.zip")
+                zipDirectory(sessionDir, zipFile)
+
+                // Create share intent via FileProvider
+                val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", zipFile)
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, "Sensor Capture: $sessionId")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+            if (intent != null) {
+                _shareIntent.value = intent
+            }
+        }
+    }
+
+    fun clearShareIntent() {
+        _shareIntent.value = null
+    }
+
+    private fun zipDirectory(dir: File, zipFile: File) {
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
+            dir.walkTopDown().filter { it.isFile }.forEach { file ->
+                val entryName = "${dir.name}/${file.relativeTo(dir).path}"
+                zos.putNextEntry(ZipEntry(entryName))
+                FileInputStream(file).use { it.copyTo(zos) }
+                zos.closeEntry()
+            }
+        }
+    }
+
     fun deleteSession(sessionId: String) {
-        service?.getRecorder()?.deleteSession(sessionId)
-        refreshSessions()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                service?.getRecorder()?.deleteSession(sessionId)
+            }
+            refreshSessions()
+        }
     }
 
     fun refreshSessions() {

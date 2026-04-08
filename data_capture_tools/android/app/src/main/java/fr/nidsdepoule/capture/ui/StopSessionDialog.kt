@@ -19,6 +19,7 @@ data class SessionAnnotation(
     val routeDestination: String,
     val labelingMethod: String,
     val labelingReliability: String,
+    val comment: String,
 )
 
 /**
@@ -39,6 +40,7 @@ fun StopSessionDialog(
     var destination by remember { mutableStateOf(suggestedDestination) }
     var selectedMethod by remember { mutableStateOf("") }
     var selectedReliability by remember { mutableStateOf("") }
+    var comment by remember { mutableStateOf("") }
 
     val methods = listOf("Boutons", "Boutons+Voix", "Voix")
     val reliabilities = listOf(
@@ -145,6 +147,22 @@ fun StopSessionDialog(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(12.dp))
+                Divider()
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Optional comment
+                Text("Commentaire (optionnel)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    placeholder = { Text("ex: en vélo, téléphone dans la poche, ...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 4,
+                )
+
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // Buttons
@@ -155,7 +173,7 @@ fun StopSessionDialog(
                     OutlinedButton(
                         onClick = {
                             // Save with whatever is filled in (allow empty)
-                            onConfirm(SessionAnnotation(origin, destination, selectedMethod, selectedReliability))
+                            onConfirm(SessionAnnotation(origin, destination, selectedMethod, selectedReliability, comment))
                         },
                         modifier = Modifier.weight(1f),
                     ) {
@@ -163,7 +181,7 @@ fun StopSessionDialog(
                     }
                     Button(
                         onClick = {
-                            onConfirm(SessionAnnotation(origin, destination, selectedMethod, selectedReliability))
+                            onConfirm(SessionAnnotation(origin, destination, selectedMethod, selectedReliability, comment))
                         },
                         modifier = Modifier.weight(1f),
                     ) {

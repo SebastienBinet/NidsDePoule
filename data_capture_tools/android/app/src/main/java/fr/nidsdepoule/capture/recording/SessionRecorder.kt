@@ -4,6 +4,7 @@ import android.content.Context
 import android.location.Location
 import android.os.Handler
 import android.os.HandlerThread
+import android.provider.Settings
 import fr.nidsdepoule.capture.Version
 import fr.nidsdepoule.capture.location.RouteNamer
 import fr.nidsdepoule.capture.sensor.SensorInfo
@@ -18,7 +19,7 @@ import java.util.Locale
  * All file I/O is dispatched to a dedicated HandlerThread so sensor callbacks
  * are never blocked by disk writes.
  */
-class SessionRecorder(context: Context) {
+class SessionRecorder(private val context: Context) {
 
     private val baseDir = File(context.getExternalFilesDir(null), "capture_sessions")
 
@@ -48,7 +49,8 @@ class SessionRecorder(context: Context) {
 
     fun start(sensors: Map<String, SensorInfo>): String {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val suffix = (1..5).map { "abcdefghijklmnopqrstuvwxyz0123456789".random() }.joinToString("")
+        val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "00000"
+        val suffix = deviceId.takeLast(5)
         sessionId = "${timestamp}_$suffix"
 
         sessionDir = File(baseDir, "session_$sessionId").apply { mkdirs() }
@@ -209,12 +211,14 @@ class SessionRecorder(context: Context) {
         routeDestination: String,
         labelingMethod: String,
         labelingReliability: String,
+        comment: String = "",
     ) {
         if (!::metadata.isInitialized) return
         metadata.routeOrigin = routeOrigin
         metadata.routeDestination = routeDestination
         metadata.labelingMethod = labelingMethod
         metadata.labelingReliability = labelingReliability
+        metadata.comment = comment
 
         // Generate route abbreviation and add to metadata
         if (routeOrigin.isNotBlank() || routeDestination.isNotBlank()) {
@@ -256,9 +260,17 @@ class SessionRecorder(context: Context) {
         return counts
     }
 
-    fun deleteSession(sessionId: String) {
-        val dir = File(baseDir, "session_$sessionId")
-        if (dir.exists()) dir.deleteRecursively()
+    /** Find a session directory by ID, handling renamed dirs (with route abbreviation suffix). */
+    fun findSessionDir(sessionId: String): File? {
+        if (!baseDir.exists()) return null
+        return baseDir.listFiles()?.find {
+            it.isDirectory && it.name.startsWith("session_$sessionId")
+        }
+    }
+
+    fun deleteSession(sessionId: String): Boolean {
+        val dir = findSessionDir(sessionId) ?: return false
+        return dir.deleteRecursively()
     }
 
     private fun computeTotalBytes(): Long =

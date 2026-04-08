@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -18,6 +19,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import fr.nidsdepoule.capture.CaptureViewModel
 import fr.nidsdepoule.capture.BuildConfig
 import fr.nidsdepoule.capture.recording.SessionSummary
@@ -40,6 +42,16 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     val lastEventCounts by viewModel.lastEventCounts.collectAsState()
     val suggestedOrigin by viewModel.suggestedOrigin.collectAsState()
     val suggestedDestination by viewModel.suggestedDestination.collectAsState()
+    val pendingShareIntent by viewModel.shareIntent.collectAsState()
+
+    // Launch share sheet when intent is ready
+    val context = LocalContext.current
+    LaunchedEffect(pendingShareIntent) {
+        pendingShareIntent?.let { intent ->
+            context.startActivity(android.content.Intent.createChooser(intent, "Share session"))
+            viewModel.clearShareIntent()
+        }
+    }
 
     // Post-capture annotation dialog
     if (showStopDialog) {
@@ -55,6 +67,7 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
                     routeDestination = annotation.routeDestination,
                     labelingMethod = annotation.labelingMethod,
                     labelingReliability = annotation.labelingReliability,
+                    comment = annotation.comment,
                 )
             },
             onDismiss = { viewModel.dismissStopDialog() },
@@ -141,7 +154,11 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     items(sessions) { session ->
-                        SessionCard(session, onDelete = { viewModel.deleteSession(session.sessionId) })
+                        SessionCard(
+                            session,
+                            onShare = { viewModel.shareSession(session.sessionId) },
+                            onDelete = { viewModel.deleteSession(session.sessionId) },
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
@@ -263,16 +280,14 @@ private fun RateChip(label: String, hz: Float) {
 }
 
 @Composable
-private fun SessionCard(session: SessionSummary, onDelete: () -> Unit) {
+private fun SessionCard(session: SessionSummary, onShare: () -> Unit, onDelete: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                // Session ID (date_time)
                 Text(session.sessionId, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
-                // Route if available
                 if (session.routeOrigin.isNotBlank() || session.routeDestination.isNotBlank()) {
                     val route = buildString {
                         if (session.routeOrigin.isNotBlank()) append(session.routeOrigin)
@@ -281,13 +296,15 @@ private fun SessionCard(session: SessionSummary, onDelete: () -> Unit) {
                     }
                     Text(route, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
-                // Size + events
                 val info = buildString {
                     append(formatBytes(session.sizeBytes))
                     if (session.eventCount > 0) append(" | ${session.eventCount} evt")
                     if (session.labelingMethod.isNotBlank()) append(" | ${session.labelingMethod}")
                 }
                 Text(info, fontSize = 12.sp, color = Color.Gray)
+            }
+            TextButton(onClick = onShare) {
+                Text("Share")
             }
             TextButton(onClick = onDelete) {
                 Text("Delete", color = MaterialTheme.colorScheme.error)
