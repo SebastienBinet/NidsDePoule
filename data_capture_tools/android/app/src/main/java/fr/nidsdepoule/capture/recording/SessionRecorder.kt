@@ -13,6 +13,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Locale-safe float formatting for CSV output (always uses '.' as decimal separator). */
+private fun csvFormat(fmt: String, vararg args: Any): String = String.format(Locale.US, fmt, *args)
+
 /**
  * Orchestrates CSV writers for all sensor streams.
  *
@@ -79,7 +82,7 @@ class SessionRecorder(private val context: Context) {
 
     fun writeAccel(timestampNs: Long, x: Float, y: Float, z: Float) {
         ioHandler.post {
-            accelWriter.writeLine("$timestampNs,%.6f,%.6f,%.6f".format(x, y, z))
+            accelWriter.writeLine(csvFormat("%d,%.6f,%.6f,%.6f", timestampNs, x, y, z))
             accelCount++
             totalBytes = computeTotalBytes()
         }
@@ -87,7 +90,7 @@ class SessionRecorder(private val context: Context) {
 
     fun writeGyro(timestampNs: Long, x: Float, y: Float, z: Float) {
         ioHandler.post {
-            gyroWriter.writeLine("$timestampNs,%.6f,%.6f,%.6f".format(x, y, z))
+            gyroWriter.writeLine(csvFormat("%d,%.6f,%.6f,%.6f", timestampNs, x, y, z))
             gyroCount++
             totalBytes = computeTotalBytes()
         }
@@ -95,7 +98,7 @@ class SessionRecorder(private val context: Context) {
 
     fun writeMag(timestampNs: Long, x: Float, y: Float, z: Float) {
         ioHandler.post {
-            magWriter.writeLine("$timestampNs,%.6f,%.6f,%.6f".format(x, y, z))
+            magWriter.writeLine(csvFormat("%d,%.6f,%.6f,%.6f", timestampNs, x, y, z))
             magCount++
             totalBytes = computeTotalBytes()
         }
@@ -103,17 +106,18 @@ class SessionRecorder(private val context: Context) {
 
     fun writeGps(location: Location) {
         ioHandler.post {
-            val line = buildString {
-                append(location.time)
-                append(",%.8f,%.8f".format(location.latitude, location.longitude))
-                append(",%.2f".format(if (location.hasAltitude()) location.altitude else 0.0))
-                append(",%.2f".format(if (location.hasSpeed()) location.speed else 0f))
-                append(",%.1f".format(if (location.hasBearing()) location.bearing else 0f))
-                append(",%.1f".format(if (location.hasAccuracy()) location.accuracy else 0f))
-                append(",%.1f".format(if (location.hasVerticalAccuracy()) location.verticalAccuracyMeters else 0f))
-                append(",%.2f".format(if (location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond else 0f))
-                append(",%.1f".format(if (location.hasBearingAccuracy()) location.bearingAccuracyDegrees else 0f))
-            }
+            val line = csvFormat(
+                "%d,%.8f,%.8f,%.2f,%.2f,%.1f,%.1f,%.1f,%.2f,%.1f",
+                location.time,
+                location.latitude, location.longitude,
+                if (location.hasAltitude()) location.altitude else 0.0,
+                if (location.hasSpeed()) location.speed.toDouble() else 0.0,
+                if (location.hasBearing()) location.bearing.toDouble() else 0.0,
+                if (location.hasAccuracy()) location.accuracy.toDouble() else 0.0,
+                if (location.hasVerticalAccuracy()) location.verticalAccuracyMeters.toDouble() else 0.0,
+                if (location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond.toDouble() else 0.0,
+                if (location.hasBearingAccuracy()) location.bearingAccuracyDegrees.toDouble() else 0.0,
+            )
             gpsWriter.writeLine(line)
             gpsCount++
             totalBytes = computeTotalBytes()

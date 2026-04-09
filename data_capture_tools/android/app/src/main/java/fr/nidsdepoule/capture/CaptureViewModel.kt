@@ -72,6 +72,10 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     private val _shareIntent = MutableStateFlow<Intent?>(null)
     val shareIntent: StateFlow<Intent?> = _shareIntent
 
+    // Last hardware key debug info
+    private val _lastKeyInfo = MutableStateFlow("")
+    val lastKeyInfo: StateFlow<String> = _lastKeyInfo
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             service = (binder as CaptureService.LocalBinder).service
@@ -169,10 +173,10 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
 
     /**
      * Called from MainActivity.onKeyDown() when a BT remote key is pressed.
-     * Maps volume keys to event types.
+     * Maps volume keys to event types. Always shows key info for debugging.
      */
     fun onHardwareKey(keyCode: Int): Boolean {
-        if (!_isRecording.value) return false
+        val keyName = android.view.KeyEvent.keyCodeToString(keyCode)
         val eventType = when (keyCode) {
             android.view.KeyEvent.KEYCODE_VOLUME_UP -> "pothole"
             android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> "other"
@@ -180,10 +184,26 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
             android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "pothole"
             android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> "other"
             android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "other"
-            else -> return false
+            else -> null
         }
-        recordEvent(eventType, "bt_button")
-        return true
+
+        if (eventType != null) {
+            _lastKeyInfo.value = "$keyName ($keyCode) → $eventType"
+            if (_isRecording.value) {
+                recordEvent(eventType, "bt_button")
+                vibrate()
+            }
+            return true
+        } else {
+            _lastKeyInfo.value = "$keyName ($keyCode) → not mapped"
+            return false
+        }
+    }
+
+    private fun vibrate() {
+        val ctx = getApplication<Application>()
+        val vibrator = ctx.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+        vibrator.vibrate(android.os.VibrationEffect.createOneShot(100, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     fun shareSession(sessionId: String) {

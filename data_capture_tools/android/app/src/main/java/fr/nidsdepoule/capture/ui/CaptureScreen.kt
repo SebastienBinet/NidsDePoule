@@ -43,6 +43,7 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     val suggestedOrigin by viewModel.suggestedOrigin.collectAsState()
     val suggestedDestination by viewModel.suggestedDestination.collectAsState()
     val pendingShareIntent by viewModel.shareIntent.collectAsState()
+    val lastKeyInfo by viewModel.lastKeyInfo.collectAsState()
 
     // Launch share sheet when intent is ready
     val context = LocalContext.current
@@ -107,6 +108,19 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
 
             // Sensor rates card
             SensorRatesCard(accelHz, gyroHz, magHz, gpsHz)
+
+            // Last BT key debug info
+            if (lastKeyInfo.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                val isMapped = !lastKeyInfo.contains("not mapped")
+                Text(
+                    "BT: $lastKeyInfo",
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (isMapped) Color(0xFF2E7D32) else Color(0xFFD32F2F),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
