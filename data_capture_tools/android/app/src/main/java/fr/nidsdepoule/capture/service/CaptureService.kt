@@ -137,7 +137,7 @@ class CaptureService : Service() {
     fun recordEvent(eventType: String, source: String) {
         if (!_isRecording.value) return
         recorder.writeEvent(eventType, source)
-        _eventCount.value = recorder.eventCount
+        _eventCount.value++  // Increment immediately — don't read from recorder (async, stale)
     }
 
     fun annotateSession(
