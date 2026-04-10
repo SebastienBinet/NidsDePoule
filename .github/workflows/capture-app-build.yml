@@ -45,7 +45,8 @@ jobs:
       - name: Get version label
         id: version
         run: |
-          ver=$(grep -oP 'const val CODE = "v\K\d+' data_capture_tools/android/app/src/main/java/fr/nidsdepoule/capture/Version.kt)
+          ver=$(sed -n 's/.*const val CODE = "v\([0-9]*\)".*/\1/p' data_capture_tools/android/app/src/main/java/fr/nidsdepoule/capture/Version.kt)
+          ver=${ver:-000}
           echo "label=v$(printf '%03d' $ver)" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK

@@ -57,24 +57,17 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Intercept hardware key events from Bluetooth remotes.
-     * BT camera shutter remotes typically send VOLUME_UP or KEYCODE_CAMERA.
-     * BT media remotes send MEDIA_PLAY_PAUSE, MEDIA_NEXT, etc.
-     * Some remotes send ENTER/DPAD_CENTER — consume them too to prevent
-     * Compose from clicking focused UI elements.
+     * Intercept ALL hardware key events before they reach Compose.
+     * dispatchKeyEvent is the single entry point for all key events —
+     * overriding only onKeyDown/onKeyUp is insufficient because some
+     * events (especially from BT remotes) can bypass those methods.
      */
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // Ignore key repeat events (held down) — only handle initial press
-        if (event != null && event.repeatCount > 0) return true
-
-        viewModel.onHardwareKey(keyCode)
-        // Always consume — prevent Compose from receiving any hardware keys
-        return true
-    }
-
-    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
-        // Consume all key-up events too — Compose triggers button clicks on keyUp,
-        // not keyDown, so we must intercept both.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Only process the initial press, not repeats or releases
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            viewModel.onHardwareKey(event.keyCode)
+        }
+        // Consume ALL key events — never let them reach Compose's focus system
         return true
     }
 
