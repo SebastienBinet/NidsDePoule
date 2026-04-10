@@ -80,6 +80,10 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     private val _lastKeyInfo = MutableStateFlow("")
     val lastKeyInfo: StateFlow<String> = _lastKeyInfo
 
+    // Event flash: incremented each time an event is captured, UI observes to flash
+    private val _eventFlash = MutableStateFlow(0)
+    val eventFlash: StateFlow<Int> = _eventFlash
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             service = (binder as CaptureService.LocalBinder).service
@@ -183,6 +187,9 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
 
     fun recordEvent(eventType: String, source: String) {
         service?.recordEvent(eventType, source)
+        if (source == "screen_button") {
+            _eventFlash.value++
+        }
     }
 
     /**
@@ -206,10 +213,11 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
 
         if (eventType != null) {
             _lastKeyInfo.value = "#$keyPressCount $keyName ($keyCode) → $eventType"
-            if (_isRecording.value) {
-                recordEvent(eventType, "bt_button")
-                vibrate()
-            }
+            // Always try to record — the service ignores if not recording.
+            // Don't check ViewModel's _isRecording (polled, can be stale by 500ms).
+            recordEvent(eventType, "bt_button")
+            vibrate()
+            _eventFlash.value = keyPressCount
             return true
         } else {
             _lastKeyInfo.value = "#$keyPressCount $keyName ($keyCode) → not mapped"

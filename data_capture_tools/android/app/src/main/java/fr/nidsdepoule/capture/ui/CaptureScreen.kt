@@ -7,10 +7,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,6 +50,22 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     val suggestedDestination by viewModel.suggestedDestination.collectAsState()
     val pendingShareIntent by viewModel.shareIntent.collectAsState()
     val lastKeyInfo by viewModel.lastKeyInfo.collectAsState()
+    val eventFlash by viewModel.eventFlash.collectAsState()
+
+    // Red flash on event capture
+    var flashActive by remember { mutableStateOf(false) }
+    LaunchedEffect(eventFlash) {
+        if (eventFlash > 0) {
+            flashActive = true
+            kotlinx.coroutines.delay(200)
+            flashActive = false
+        }
+    }
+    val bgColor by animateColorAsState(
+        targetValue = if (flashActive) Color(0x40FF0000) else Color.Transparent,
+        animationSpec = tween(durationMillis = if (flashActive) 50 else 300),
+        label = "flash",
+    )
 
     // Launch share sheet when intent is ready
     val context = LocalContext.current
@@ -98,6 +119,7 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(bgColor)
                 .padding(padding)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
