@@ -51,6 +51,9 @@ class SessionRecorder(private val context: Context) {
     val durationMs: Long get() = if (startTimeMs > 0) System.currentTimeMillis() - startTimeMs else 0
 
     fun start(sensors: Map<String, SensorInfo>): String {
+        // Reset all counters from previous session
+        accelCount = 0; gyroCount = 0; magCount = 0; gpsCount = 0; eventCount = 0; totalBytes = 0
+
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "00000"
         val suffix = deviceId.takeLast(5)

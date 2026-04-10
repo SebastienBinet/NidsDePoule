@@ -36,6 +36,7 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     val durationMs by viewModel.durationMs.collectAsState()
     val eventCount by viewModel.eventCount.collectAsState()
     val sessions by viewModel.sessions.collectAsState()
+    val isStopping by viewModel.isStopping.collectAsState()
     val showStopDialog by viewModel.showStopDialog.collectAsState()
     val lastSessionId by viewModel.lastSessionId.collectAsState()
     val lastDurationMs by viewModel.lastDurationMs.collectAsState()
@@ -137,20 +138,23 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
             // Start/Stop button
             Button(
                 onClick = {
-                    if (isRecording) viewModel.stopRecording()
+                    if (isStopping) { /* ignore clicks while stopping */ }
+                    else if (isRecording) viewModel.stopRecording()
                     else viewModel.startRecording()
                 },
+                enabled = !isStopping,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isRecording) MaterialTheme.colorScheme.error
+                    containerColor = if (isStopping) Color.Gray
+                    else if (isRecording) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.primary,
                 ),
                 shape = RoundedCornerShape(16.dp),
             ) {
                 Text(
-                    text = if (isRecording) "STOP" else "START",
+                    text = if (isStopping) "Stopping..." else if (isRecording) "STOP" else "START",
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                 )

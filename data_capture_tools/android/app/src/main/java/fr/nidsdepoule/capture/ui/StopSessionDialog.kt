@@ -171,10 +171,7 @@ fun StopSessionDialog(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     OutlinedButton(
-                        onClick = {
-                            // Save with whatever is filled in (allow empty)
-                            onConfirm(SessionAnnotation(origin, destination, selectedMethod, selectedReliability, comment))
-                        },
+                        onClick = onDismiss,
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Passer")

@@ -48,12 +48,18 @@ class MainActivity : ComponentActivity() {
      * Intercept hardware key events from Bluetooth remotes.
      * BT camera shutter remotes typically send VOLUME_UP or KEYCODE_CAMERA.
      * BT media remotes send MEDIA_PLAY_PAUSE, MEDIA_NEXT, etc.
+     * Some remotes send ENTER/DPAD_CENTER — consume them too to prevent
+     * Compose from clicking focused UI elements.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // Ignore key repeat events (held down) — only handle initial press
+        if (event != null && event.repeatCount > 0) return true
+
         if (viewModel.onHardwareKey(keyCode)) {
             return true  // Consumed — don't let the system change volume
         }
-        return super.onKeyDown(keyCode, event)
+        // Consume all remaining hardware key events to prevent Compose focus clicks
+        return true
     }
 
     private fun requestMissingPermissions() {

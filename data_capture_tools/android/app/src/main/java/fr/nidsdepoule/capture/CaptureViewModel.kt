@@ -54,6 +54,9 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     private val _sessions = MutableStateFlow<List<SessionSummary>>(emptyList())
     val sessions: StateFlow<List<SessionSummary>> = _sessions
 
+    private val _isStopping = MutableStateFlow(false)
+    val isStopping: StateFlow<Boolean> = _isStopping
+
     // Post-capture dialog state
     private val _showStopDialog = MutableStateFlow(false)
     val showStopDialog: StateFlow<Boolean> = _showStopDialog
@@ -72,7 +75,8 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     private val _shareIntent = MutableStateFlow<Intent?>(null)
     val shareIntent: StateFlow<Intent?> = _shareIntent
 
-    // Last hardware key debug info
+    // Last hardware key debug info (counter ensures MutableStateFlow always emits)
+    private var keyPressCount = 0
     private val _lastKeyInfo = MutableStateFlow("")
     val lastKeyInfo: StateFlow<String> = _lastKeyInfo
 
@@ -124,6 +128,7 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
 
     fun stopRecording() {
         val svc = service ?: return
+        _isStopping.value = true
         _lastDurationMs.value = svc.durationMs.value
 
         // All blocking work (file I/O, geocoding, thread joins) off the main thread
@@ -143,6 +148,7 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
             if (latest != null) {
                 _lastSessionId.value = latest.sessionId
             }
+            _isStopping.value = false
             _showStopDialog.value = true
         }
     }
@@ -177,6 +183,7 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
      */
     fun onHardwareKey(keyCode: Int): Boolean {
         val keyName = android.view.KeyEvent.keyCodeToString(keyCode)
+        keyPressCount++
         val eventType = when (keyCode) {
             android.view.KeyEvent.KEYCODE_VOLUME_UP -> "pothole"
             android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> "other"
@@ -184,18 +191,20 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
             android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "pothole"
             android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> "other"
             android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "other"
+            android.view.KeyEvent.KEYCODE_ENTER -> "pothole"
+            android.view.KeyEvent.KEYCODE_DPAD_CENTER -> "pothole"
             else -> null
         }
 
         if (eventType != null) {
-            _lastKeyInfo.value = "$keyName ($keyCode) → $eventType"
+            _lastKeyInfo.value = "#$keyPressCount $keyName ($keyCode) → $eventType"
             if (_isRecording.value) {
                 recordEvent(eventType, "bt_button")
                 vibrate()
             }
             return true
         } else {
-            _lastKeyInfo.value = "$keyName ($keyCode) → not mapped"
+            _lastKeyInfo.value = "#$keyPressCount $keyName ($keyCode) → not mapped"
             return false
         }
     }
