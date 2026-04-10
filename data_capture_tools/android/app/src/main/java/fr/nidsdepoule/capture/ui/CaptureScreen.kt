@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -52,6 +53,20 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     val lastKeyInfo by viewModel.lastKeyInfo.collectAsState()
     val eventFlash by viewModel.eventFlash.collectAsState()
     val highlightButton by viewModel.highlightButton.collectAsState()
+    val context = LocalContext.current
+
+    // Keep screen on during recording so the BT clicker keeps working
+    // (when the screen locks, the app goes to background and loses key events)
+    DisposableEffect(isRecording) {
+        val activity = context as? android.app.Activity
+        val window = activity?.window
+        if (isRecording && window != null) {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     // Red flash on event capture
     var flashActive by remember { mutableStateOf(false) }
@@ -69,7 +84,6 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     )
 
     // Launch share sheet when intent is ready
-    val context = LocalContext.current
     LaunchedEffect(pendingShareIntent) {
         pendingShareIntent?.let { intent ->
             context.startActivity(android.content.Intent.createChooser(intent, "Share session"))
