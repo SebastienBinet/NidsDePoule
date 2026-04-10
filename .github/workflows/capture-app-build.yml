@@ -47,7 +47,7 @@ jobs:
         run: |
           ver=$(sed -n 's/.*const val CODE = "v\([0-9]*\)".*/\1/p' data_capture_tools/android/app/src/main/java/fr/nidsdepoule/capture/Version.kt)
           ver=${ver:-000}
-          echo "label=v$(printf '%03d' $ver)" >> "$GITHUB_OUTPUT"
+          echo "label=v${ver}" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
