@@ -91,6 +91,8 @@ class CaptureService : Service() {
 
         lastRateResetMs = System.currentTimeMillis()
         accelRateCount = 0; gyroRateCount = 0; magRateCount = 0; gpsRateCount = 0
+        _eventCount.value = 0
+        _totalBytes.value = 0; _durationMs.value = 0
         firstGpsFix = null; lastGpsFix = null
 
         sensorCollector.start(

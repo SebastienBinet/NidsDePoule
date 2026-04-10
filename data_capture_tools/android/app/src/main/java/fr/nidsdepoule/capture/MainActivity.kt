@@ -27,13 +27,25 @@ class MainActivity : ComponentActivity() {
     )
 
     private val permissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* proceed regardless */ }
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            // Start the service once permissions are resolved (granted or denied)
+            viewModel.ensureServiceStarted()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestMissingPermissions()
 
         viewModel = ViewModelProvider(this)[CaptureViewModel::class.java]
+
+        val missing = requiredPermissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            permissionLauncher.launch(missing.toTypedArray())
+        } else {
+            // All permissions already granted — start service immediately
+            viewModel.ensureServiceStarted()
+        }
 
         setContent {
             MaterialTheme {
@@ -55,19 +67,15 @@ class MainActivity : ComponentActivity() {
         // Ignore key repeat events (held down) — only handle initial press
         if (event != null && event.repeatCount > 0) return true
 
-        if (viewModel.onHardwareKey(keyCode)) {
-            return true  // Consumed — don't let the system change volume
-        }
-        // Consume all remaining hardware key events to prevent Compose focus clicks
+        viewModel.onHardwareKey(keyCode)
+        // Always consume — prevent Compose from receiving any hardware keys
         return true
     }
 
-    private fun requestMissingPermissions() {
-        val missing = requiredPermissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (missing.isNotEmpty()) {
-            permissionLauncher.launch(missing.toTypedArray())
-        }
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        // Consume all key-up events too — Compose triggers button clicks on keyUp,
+        // not keyDown, so we must intercept both.
+        return true
     }
+
 }

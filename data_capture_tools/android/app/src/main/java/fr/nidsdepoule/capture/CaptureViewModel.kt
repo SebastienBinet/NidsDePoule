@@ -94,12 +94,20 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private var serviceStarted = false
+
     init {
+        refreshSessions()
+    }
+
+    /** Called by MainActivity after permissions are resolved. Starts the foreground service. */
+    fun ensureServiceStarted() {
+        if (serviceStarted) return
+        serviceStarted = true
         val ctx = getApplication<Application>()
         val intent = CaptureService.startIntent(ctx)
         ctx.startForegroundService(intent)
         ctx.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-        refreshSessions()
     }
 
     private fun startCollectingState() {
