@@ -84,6 +84,10 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     private val _eventFlash = MutableStateFlow(0)
     val eventFlash: StateFlow<Int> = _eventFlash
 
+    // Which button to highlight on BT press (e.g. "pothole", "crack")
+    private val _highlightButton = MutableStateFlow("")
+    val highlightButton: StateFlow<String> = _highlightButton
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             service = (binder as CaptureService.LocalBinder).service
@@ -206,8 +210,8 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
             android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "pothole"
             android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> "other"
             android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "other"
-            android.view.KeyEvent.KEYCODE_ENTER -> "pothole"
-            android.view.KeyEvent.KEYCODE_DPAD_CENTER -> "pothole"
+            android.view.KeyEvent.KEYCODE_ENTER -> "crack"
+            android.view.KeyEvent.KEYCODE_DPAD_CENTER -> "crack"
             else -> null
         }
 
@@ -218,6 +222,7 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
             recordEvent(eventType, "bt_button")
             vibrate()
             _eventFlash.value = keyPressCount
+            _highlightButton.value = "$eventType:$keyPressCount"  // counter forces re-emit
             return true
         } else {
             _lastKeyInfo.value = "#$keyPressCount $keyName ($keyCode) → not mapped"

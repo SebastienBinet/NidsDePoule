@@ -51,6 +51,7 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
     val pendingShareIntent by viewModel.shareIntent.collectAsState()
     val lastKeyInfo by viewModel.lastKeyInfo.collectAsState()
     val eventFlash by viewModel.eventFlash.collectAsState()
+    val highlightButton by viewModel.highlightButton.collectAsState()
 
     // Red flash on event capture
     var flashActive by remember { mutableStateOf(false) }
@@ -153,6 +154,7 @@ fun CaptureScreen(viewModel: CaptureViewModel) {
                     onPothole = { viewModel.recordEvent("pothole", "screen_button") },
                     onCrack = { viewModel.recordEvent("crack", "screen_button") },
                     onRough = { viewModel.recordEvent("rough", "screen_button") },
+                    highlightButton = highlightButton,
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -250,7 +252,40 @@ private fun EventButtonsCard(
     onPothole: () -> Unit,
     onCrack: () -> Unit,
     onRough: () -> Unit,
+    highlightButton: String = "",
 ) {
+    // Extract event type from "pothole:3" format (counter suffix forces re-emit)
+    val highlightType = highlightButton.substringBefore(":")
+
+    // Animate highlight for each button independently
+    val potholeHighlight = highlightType == "pothole"
+    val crackHighlight = highlightType == "crack"
+
+    // Auto-clear highlight after 300ms
+    var potholeShine by remember { mutableStateOf(false) }
+    var crackShine by remember { mutableStateOf(false) }
+    LaunchedEffect(highlightButton) {
+        if (potholeHighlight) {
+            potholeShine = true
+            kotlinx.coroutines.delay(300)
+            potholeShine = false
+        }
+        if (crackHighlight) {
+            crackShine = true
+            kotlinx.coroutines.delay(300)
+            crackShine = false
+        }
+    }
+
+    val potholeColor by animateColorAsState(
+        if (potholeShine) Color(0xFFFF6659) else Color(0xFFD32F2F),
+        animationSpec = tween(if (potholeShine) 50 else 200), label = "pothole",
+    )
+    val crackColor by animateColorAsState(
+        if (crackShine) Color(0xFFFF6659) else Color.Transparent,
+        animationSpec = tween(if (crackShine) 50 else 200), label = "crack",
+    )
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
@@ -266,14 +301,18 @@ private fun EventButtonsCard(
                 Button(
                     onClick = onPothole,
                     modifier = Modifier.weight(1f).height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                    colors = ButtonDefaults.buttonColors(containerColor = potholeColor),
                     shape = RoundedCornerShape(8.dp),
                 ) {
                     Text("Pothole", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
-                OutlinedButton(
+                Button(
                     onClick = onCrack,
                     modifier = Modifier.weight(1f).height(48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (crackShine) crackColor else MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = if (crackShine) Color.White else MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
                     shape = RoundedCornerShape(8.dp),
                 ) {
                     Text("Crack", fontSize = 13.sp)
