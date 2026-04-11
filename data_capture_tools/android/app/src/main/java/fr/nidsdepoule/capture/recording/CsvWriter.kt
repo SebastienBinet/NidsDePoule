@@ -19,6 +19,7 @@ class CsvWriter(file: File, header: String) {
     init {
         writer.write(header)
         writer.newLine()
+        writer.flush()  // Flush header immediately so file has content even if app is killed
         bytesWritten += header.length + 1
     }
 

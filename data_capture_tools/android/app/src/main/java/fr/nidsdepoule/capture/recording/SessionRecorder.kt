@@ -13,9 +13,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Locale-safe float formatting for CSV output (always uses '.' as decimal separator). */
-private fun csvFormat(fmt: String, vararg args: Any): String = String.format(Locale.US, fmt, *args)
-
 /**
  * Orchestrates CSV writers for all sensor streams.
  *
@@ -80,50 +77,85 @@ class SessionRecorder(private val context: Context) {
         metadata = SessionMetadata(sessionId = sessionId, sensors = sensors)
         startTimeMs = System.currentTimeMillis()
 
+        // Schedule periodic flush every 2s so data reaches disk even if app is killed
+        scheduleFlush()
+
         return sessionId
+    }
+
+    private fun scheduleFlush() {
+        ioHandler.postDelayed({
+            try {
+                accelWriter.flush()
+                gyroWriter.flush()
+                magWriter.flush()
+                gpsWriter.flush()
+                eventWriter.flush()
+                scheduleFlush()  // Schedule next flush
+            } catch (e: Exception) {
+                android.util.Log.e("SessionRecorder", "periodic flush failed", e)
+            }
+        }, 2000)
     }
 
     fun writeAccel(timestampNs: Long, x: Float, y: Float, z: Float) {
         ioHandler.post {
-            accelWriter.writeLine(csvFormat("%d,%.6f,%.6f,%.6f", timestampNs, x, y, z))
-            accelCount++
-            totalBytes = computeTotalBytes()
+            try {
+                accelWriter.writeLine(String.format(Locale.US, "%d,%.6f,%.6f,%.6f", timestampNs, x, y, z))
+                accelCount++
+                totalBytes = computeTotalBytes()
+            } catch (e: Exception) {
+                android.util.Log.e("SessionRecorder", "writeAccel failed", e)
+            }
         }
     }
 
     fun writeGyro(timestampNs: Long, x: Float, y: Float, z: Float) {
         ioHandler.post {
-            gyroWriter.writeLine(csvFormat("%d,%.6f,%.6f,%.6f", timestampNs, x, y, z))
-            gyroCount++
-            totalBytes = computeTotalBytes()
+            try {
+                gyroWriter.writeLine(String.format(Locale.US, "%d,%.6f,%.6f,%.6f", timestampNs, x, y, z))
+                gyroCount++
+                totalBytes = computeTotalBytes()
+            } catch (e: Exception) {
+                android.util.Log.e("SessionRecorder", "writeGyro failed", e)
+            }
         }
     }
 
     fun writeMag(timestampNs: Long, x: Float, y: Float, z: Float) {
         ioHandler.post {
-            magWriter.writeLine(csvFormat("%d,%.6f,%.6f,%.6f", timestampNs, x, y, z))
-            magCount++
-            totalBytes = computeTotalBytes()
+            try {
+                magWriter.writeLine(String.format(Locale.US, "%d,%.6f,%.6f,%.6f", timestampNs, x, y, z))
+                magCount++
+                totalBytes = computeTotalBytes()
+            } catch (e: Exception) {
+                android.util.Log.e("SessionRecorder", "writeMag failed", e)
+            }
         }
     }
 
     fun writeGps(location: Location) {
         ioHandler.post {
-            val line = csvFormat(
-                "%d,%.8f,%.8f,%.2f,%.2f,%.1f,%.1f,%.1f,%.2f,%.1f",
-                location.time,
-                location.latitude, location.longitude,
-                if (location.hasAltitude()) location.altitude else 0.0,
-                if (location.hasSpeed()) location.speed.toDouble() else 0.0,
-                if (location.hasBearing()) location.bearing.toDouble() else 0.0,
-                if (location.hasAccuracy()) location.accuracy.toDouble() else 0.0,
-                if (location.hasVerticalAccuracy()) location.verticalAccuracyMeters.toDouble() else 0.0,
-                if (location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond.toDouble() else 0.0,
-                if (location.hasBearingAccuracy()) location.bearingAccuracyDegrees.toDouble() else 0.0,
-            )
-            gpsWriter.writeLine(line)
-            gpsCount++
-            totalBytes = computeTotalBytes()
+            try {
+                val line = String.format(
+                    Locale.US,
+                    "%d,%.8f,%.8f,%.2f,%.2f,%.1f,%.1f,%.1f,%.2f,%.1f",
+                    location.time,
+                    location.latitude, location.longitude,
+                    if (location.hasAltitude()) location.altitude else 0.0,
+                    if (location.hasSpeed()) location.speed.toDouble() else 0.0,
+                    if (location.hasBearing()) location.bearing.toDouble() else 0.0,
+                    if (location.hasAccuracy()) location.accuracy.toDouble() else 0.0,
+                    if (location.hasVerticalAccuracy()) location.verticalAccuracyMeters.toDouble() else 0.0,
+                    if (location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond.toDouble() else 0.0,
+                    if (location.hasBearingAccuracy()) location.bearingAccuracyDegrees.toDouble() else 0.0,
+                )
+                gpsWriter.writeLine(line)
+                gpsCount++
+                totalBytes = computeTotalBytes()
+            } catch (e: Exception) {
+                android.util.Log.e("SessionRecorder", "writeGps failed", e)
+            }
         }
     }
 
@@ -134,9 +166,15 @@ class SessionRecorder(private val context: Context) {
      */
     fun writeEvent(eventType: String, source: String) {
         ioHandler.post {
-            eventWriter.writeLine("${System.currentTimeMillis()},$eventType,$source")
-            eventCount++
-            totalBytes = computeTotalBytes()
+            try {
+                eventWriter.writeLine("${System.currentTimeMillis()},$eventType,$source")
+                // Events are rare and critical — flush immediately so they survive app kills
+                eventWriter.flush()
+                eventCount++
+                totalBytes = computeTotalBytes()
+            } catch (e: Exception) {
+                android.util.Log.e("SessionRecorder", "writeEvent failed", e)
+            }
         }
     }
 
@@ -144,31 +182,44 @@ class SessionRecorder(private val context: Context) {
         // Stop audio recording first (runs on its own thread)
         audioRecorder.stop()
 
-        // Post the close operations to the I/O thread so all pending writes finish first
-        ioHandler.post {
-            accelWriter.close()
-            gyroWriter.close()
-            magWriter.close()
-            gpsWriter.close()
-            eventWriter.close()
+        // Cancel the periodic flush
+        ioHandler.removeCallbacksAndMessages(null)
 
-            metadata.endTimeEpochMs = System.currentTimeMillis()
-            metadata.sampleCounts = mapOf(
-                "accel" to accelCount,
-                "gyro" to gyroCount,
-                "mag" to magCount,
-                "gps" to gpsCount,
-                "events" to eventCount,
-            )
-            metadata.fileSizesBytes = mapOf(
-                "accel" to accelWriter.bytesWritten,
-                "gyro" to gyroWriter.bytesWritten,
-                "mag" to magWriter.bytesWritten,
-                "gps" to gpsWriter.bytesWritten,
-                "events" to eventWriter.bytesWritten,
-                "audio" to audioRecorder.bytesWritten,
-            )
-            metadata.writeTo(File(sessionDir, "meta_$sessionId.json"))
+        // Post the close operations to the I/O thread so all pending writes finish first.
+        // Each writer is closed independently so one failure doesn't prevent the others.
+        ioHandler.post {
+            fun safeClose(name: String, action: () -> Unit) {
+                try { action() } catch (e: Exception) {
+                    android.util.Log.e("SessionRecorder", "close $name failed", e)
+                }
+            }
+            safeClose("accel") { accelWriter.close() }
+            safeClose("gyro") { gyroWriter.close() }
+            safeClose("mag") { magWriter.close() }
+            safeClose("gps") { gpsWriter.close() }
+            safeClose("events") { eventWriter.close() }
+
+            try {
+                metadata.endTimeEpochMs = System.currentTimeMillis()
+                metadata.sampleCounts = mapOf(
+                    "accel" to accelCount,
+                    "gyro" to gyroCount,
+                    "mag" to magCount,
+                    "gps" to gpsCount,
+                    "events" to eventCount,
+                )
+                metadata.fileSizesBytes = mapOf(
+                    "accel" to accelWriter.bytesWritten,
+                    "gyro" to gyroWriter.bytesWritten,
+                    "mag" to magWriter.bytesWritten,
+                    "gps" to gpsWriter.bytesWritten,
+                    "events" to eventWriter.bytesWritten,
+                    "audio" to audioRecorder.bytesWritten,
+                )
+                metadata.writeTo(File(sessionDir, "meta_$sessionId.json"))
+            } catch (e: Exception) {
+                android.util.Log.e("SessionRecorder", "meta write failed", e)
+            }
         }
 
         // Wait for all pending I/O to complete, then shut down the thread
