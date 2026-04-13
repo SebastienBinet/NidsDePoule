@@ -202,6 +202,7 @@ class CaptureService : Service() {
 
     override fun onDestroy() {
         if (_isRecording.value) stopRecording()
+        recorder.release()
         super.onDestroy()
     }
 }

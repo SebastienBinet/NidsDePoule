@@ -222,10 +222,16 @@ class SessionRecorder(private val context: Context) {
             }
         }
 
-        // Wait for all pending I/O to complete, then shut down the thread
+        // Wait for all pending I/O to complete. Do NOT quit the thread — it needs
+        // to stay alive for the next recording session. The thread is only destroyed
+        // when the service itself is destroyed (see release()).
         val latch = java.util.concurrent.CountDownLatch(1)
         ioHandler.post { latch.countDown() }
         latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+    }
+
+    /** Call from CaptureService.onDestroy() to fully shut down the I/O thread. */
+    fun release() {
         ioThread.quitSafely()
     }
 
