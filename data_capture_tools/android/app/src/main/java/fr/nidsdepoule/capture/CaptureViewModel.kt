@@ -220,7 +220,12 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
             // Always try to record — the service ignores if not recording.
             // Don't check ViewModel's _isRecording (polled, can be stale by 500ms).
             recordEvent(eventType, "bt_button")
-            vibrate()
+            // Vibrate only when NOT recording. During recording, the vibration
+            // would be captured by the accelerometer and contaminate the data.
+            // Use the service's current state directly (not the stale polled copy).
+            if (service?.isRecording?.value != true) {
+                vibrate()
+            }
             _eventFlash.value = keyPressCount
             _highlightButton.value = "$eventType:$keyPressCount"  // counter forces re-emit
             return true
