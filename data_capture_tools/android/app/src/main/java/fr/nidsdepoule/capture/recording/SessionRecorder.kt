@@ -4,7 +4,6 @@ import android.content.Context
 import android.location.Location
 import android.os.Handler
 import android.os.HandlerThread
-import android.provider.Settings
 import fr.nidsdepoule.capture.Version
 import fr.nidsdepoule.capture.location.RouteNamer
 import fr.nidsdepoule.capture.sensor.SensorInfo
@@ -54,8 +53,11 @@ class SessionRecorder(private val context: Context) {
         accelCount = 0; linAccelCount = 0; gyroCount = 0; magCount = 0; gpsCount = 0; eventCount = 0; totalBytes = 0
 
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "00000"
-        val suffix = deviceId.takeLast(5)
+        // Stable suffix per physical device: hash of manufacturer + model.
+        // Doesn't change across app reinstalls or OS updates (unlike ANDROID_ID
+        // which is scoped to the signing key and gets reset on each CI-signed build).
+        val deviceTag = "${android.os.Build.MANUFACTURER}_${android.os.Build.MODEL}"
+        val suffix = String.format("%05x", deviceTag.hashCode() and 0xFFFFF)
         sessionId = "${timestamp}_$suffix"
 
         sessionDir = File(baseDir, "session_$sessionId").apply { mkdirs() }
