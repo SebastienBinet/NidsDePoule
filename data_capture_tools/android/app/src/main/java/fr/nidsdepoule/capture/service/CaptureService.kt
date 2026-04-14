@@ -101,6 +101,9 @@ class CaptureService : Service() {
                 accelRateCount++
                 updateRates()
             },
+            onLinAccel = { ts, x, y, z ->
+                recorder.writeLinAccel(ts, x, y, z)
+            },
             onGyro = { ts, x, y, z ->
                 recorder.writeGyro(ts, x, y, z)
                 gyroRateCount++

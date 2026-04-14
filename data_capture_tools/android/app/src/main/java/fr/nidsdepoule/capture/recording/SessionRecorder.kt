@@ -28,6 +28,7 @@ class SessionRecorder(private val context: Context) {
     private lateinit var metadata: SessionMetadata
 
     private lateinit var accelWriter: CsvWriter
+    private lateinit var linAccelWriter: CsvWriter
     private lateinit var gyroWriter: CsvWriter
     private lateinit var magWriter: CsvWriter
     private lateinit var gpsWriter: CsvWriter
@@ -38,6 +39,7 @@ class SessionRecorder(private val context: Context) {
     private val ioHandler = Handler(ioThread.looper)
 
     @Volatile var accelCount = 0L; private set
+    @Volatile var linAccelCount = 0L; private set
     @Volatile var gyroCount = 0L; private set
     @Volatile var magCount = 0L; private set
     @Volatile var gpsCount = 0L; private set
@@ -49,7 +51,7 @@ class SessionRecorder(private val context: Context) {
 
     fun start(sensors: Map<String, SensorInfo>): String {
         // Reset all counters from previous session
-        accelCount = 0; gyroCount = 0; magCount = 0; gpsCount = 0; eventCount = 0; totalBytes = 0
+        accelCount = 0; linAccelCount = 0; gyroCount = 0; magCount = 0; gpsCount = 0; eventCount = 0; totalBytes = 0
 
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "00000"
@@ -60,6 +62,7 @@ class SessionRecorder(private val context: Context) {
 
         val ver = Version.CODE
         accelWriter = CsvWriter(File(sessionDir, "accel_$sessionId.csv"), "# $ver\ntimestamp_ns,x_ms2,y_ms2,z_ms2")
+        linAccelWriter = CsvWriter(File(sessionDir, "lin_accel_$sessionId.csv"), "# $ver\ntimestamp_ns,x_ms2,y_ms2,z_ms2")
         gyroWriter = CsvWriter(File(sessionDir, "gyro_$sessionId.csv"), "# $ver\ntimestamp_ns,x_rads,y_rads,z_rads")
         magWriter = CsvWriter(File(sessionDir, "mag_$sessionId.csv"), "# $ver\ntimestamp_ns,x_ut,y_ut,z_ut")
         gpsWriter = CsvWriter(
@@ -87,6 +90,7 @@ class SessionRecorder(private val context: Context) {
         ioHandler.postDelayed({
             try {
                 accelWriter.flush()
+                linAccelWriter.flush()
                 gyroWriter.flush()
                 magWriter.flush()
                 gpsWriter.flush()
@@ -106,6 +110,18 @@ class SessionRecorder(private val context: Context) {
                 totalBytes = computeTotalBytes()
             } catch (e: Exception) {
                 android.util.Log.e("SessionRecorder", "writeAccel failed", e)
+            }
+        }
+    }
+
+    fun writeLinAccel(timestampNs: Long, x: Float, y: Float, z: Float) {
+        ioHandler.post {
+            try {
+                linAccelWriter.writeLine(String.format(Locale.US, "%d,%.6f,%.6f,%.6f", timestampNs, x, y, z))
+                linAccelCount++
+                totalBytes = computeTotalBytes()
+            } catch (e: Exception) {
+                android.util.Log.e("SessionRecorder", "writeLinAccel failed", e)
             }
         }
     }
@@ -194,6 +210,7 @@ class SessionRecorder(private val context: Context) {
                 }
             }
             safeClose("accel") { accelWriter.close() }
+            safeClose("lin_accel") { linAccelWriter.close() }
             safeClose("gyro") { gyroWriter.close() }
             safeClose("mag") { magWriter.close() }
             safeClose("gps") { gpsWriter.close() }
@@ -203,6 +220,7 @@ class SessionRecorder(private val context: Context) {
                 metadata.endTimeEpochMs = System.currentTimeMillis()
                 metadata.sampleCounts = mapOf(
                     "accel" to accelCount,
+                    "lin_accel" to linAccelCount,
                     "gyro" to gyroCount,
                     "mag" to magCount,
                     "gps" to gpsCount,
@@ -210,6 +228,7 @@ class SessionRecorder(private val context: Context) {
                 )
                 metadata.fileSizesBytes = mapOf(
                     "accel" to accelWriter.bytesWritten,
+                    "lin_accel" to linAccelWriter.bytesWritten,
                     "gyro" to gyroWriter.bytesWritten,
                     "mag" to magWriter.bytesWritten,
                     "gps" to gpsWriter.bytesWritten,
@@ -352,7 +371,7 @@ class SessionRecorder(private val context: Context) {
     }
 
     private fun computeTotalBytes(): Long =
-        accelWriter.bytesWritten + gyroWriter.bytesWritten + magWriter.bytesWritten + gpsWriter.bytesWritten + eventWriter.bytesWritten + audioRecorder.bytesWritten
+        accelWriter.bytesWritten + linAccelWriter.bytesWritten + gyroWriter.bytesWritten + magWriter.bytesWritten + gpsWriter.bytesWritten + eventWriter.bytesWritten + audioRecorder.bytesWritten
 }
 
 data class SessionSummary(

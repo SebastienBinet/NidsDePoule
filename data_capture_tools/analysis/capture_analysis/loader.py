@@ -22,12 +22,13 @@ def load_session(session_dir: str | Path) -> dict:
     """Load all CSV files and metadata from a capture session.
 
     Returns a dict with keys:
-        meta   — parsed JSON metadata (dict)
-        accel  — DataFrame (or None)
-        gyro   — DataFrame (or None)
-        mag    — DataFrame (or None)
-        gps    — DataFrame (or None)
-        events — DataFrame (or None)
+        meta      — parsed JSON metadata (dict)
+        accel     — DataFrame (or None) — raw accelerometer (includes gravity)
+        lin_accel — DataFrame (or None) — linear acceleration (gravity removed by Android sensor fusion)
+        gyro      — DataFrame (or None)
+        mag       — DataFrame (or None)
+        gps       — DataFrame (or None)
+        events    — DataFrame (or None)
 
     All DataFrames include a `time_s` column (seconds since session start).
     Unknown CSV columns from future versions are preserved as-is.
@@ -55,6 +56,7 @@ def load_session(session_dir: str | Path) -> dict:
 
     # Load sensor CSVs (extra columns from future versions are kept)
     accel = _load_sensor_csv(d, "accel", start_boot_ns)
+    lin_accel = _load_sensor_csv(d, "lin_accel", start_boot_ns)
     gyro = _load_sensor_csv(d, "gyro", start_boot_ns)
     mag = _load_sensor_csv(d, "mag", start_boot_ns)
 
@@ -64,7 +66,10 @@ def load_session(session_dir: str | Path) -> dict:
     # Load events
     events = _load_events_csv(d, boot_offset_ms, start_boot_ns)
 
-    return {"meta": meta, "accel": accel, "gyro": gyro, "mag": mag, "gps": gps, "events": events}
+    return {
+        "meta": meta, "accel": accel, "lin_accel": lin_accel,
+        "gyro": gyro, "mag": mag, "gps": gps, "events": events,
+    }
 
 
 def _read_csv_version(filepath: Path) -> Optional[str]:
