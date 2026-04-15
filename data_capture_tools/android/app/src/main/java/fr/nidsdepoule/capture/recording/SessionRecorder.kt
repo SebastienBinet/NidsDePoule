@@ -58,7 +58,8 @@ class SessionRecorder(private val context: Context) {
         // which is scoped to the signing key and gets reset on each CI-signed build).
         val deviceTag = "${android.os.Build.MANUFACTURER}_${android.os.Build.MODEL}"
         val suffix = String.format("%05x", deviceTag.hashCode() and 0xFFFFF)
-        sessionId = "${timestamp}_$suffix"
+        // App version prefix for tracking notebook compatibility across captures
+        sessionId = "${Version.CODE}_${timestamp}_$suffix"
 
         sessionDir = File(baseDir, "session_$sessionId").apply { mkdirs() }
 
