@@ -216,40 +216,43 @@ def generate_route(duration_s, fs):
 
     events = []
 
-    # 0-10s: stopped
-    # 10-30s: accelerate to 50 km/h (13.9 m/s) over 5s, then cruise
+    # Scenario (180s total):
+    # 0-10s:    stopped (calibration)
+    # 10-15s:   accelerate to 50 km/h
+    # 15-66s:   cruise 50 km/h — easy potholes (30-63s)
+    # 66-71s:   braking to stop
+    # 71-75s:   stopped at stop sign
+    # 75-80s:   accelerate, then 90° right turn
+    # 80-116s:  cruise 50 km/h with brownian noise — hard potholes (80-113s)
+    # 116-120s: phone tilts from vertical to 45°
+    # 120-170s: cruise 50 km/h — tilted phone potholes (130-163s)
+    # 170-180s: braking to stop
     for i in range(n):
         ti = t[i]
         if ti < 10:
             speed[i] = 0
         elif ti < 15:
-            speed[i] = 13.9 * (ti - 10) / 5  # smooth acceleration
-        elif ti < 30:
+            speed[i] = 13.9 * (ti - 10) / 5
+        elif ti < 66:
             speed[i] = 13.9
-        elif ti < 40:
-            speed[i] = 13.9  # cruising with potholes
-        elif ti < 45:
-            # Braking to stop: decelerate over 5s
-            speed[i] = 13.9 * (1 - (ti - 40) / 5)
-        elif ti < 55:
-            speed[i] = 0  # stopped at stop sign
-        elif ti < 60:
-            speed[i] = 10.0 * (ti - 55) / 5  # accelerate to 36 km/h
-        elif ti < 65:
-            speed[i] = 10.0  # turning speed
-        elif ti < 70:
-            speed[i] = 10.0 + 3.9 * (ti - 65) / 5  # accelerate back to ~50
-        elif ti <= duration_s:
+        elif ti < 71:
+            speed[i] = 13.9 * (1 - (ti - 66) / 5)
+        elif ti < 75:
+            speed[i] = 0
+        elif ti < 80:
+            speed[i] = 13.9 * (ti - 75) / 5
+        elif ti < 170:
             speed[i] = 13.9
+        else:
+            speed[i] = 13.9 * max(0, 1 - (ti - 170) / 5)
 
-    # Heading: 90° right turn between 60-65s
+    # Heading: 90° right turn between 76-80s
     for i in range(n):
         ti = t[i]
-        if ti < 60:
+        if ti < 76:
             heading[i] = np.deg2rad(45)  # NE
-        elif ti < 65:
-            frac = (ti - 60) / 5
-            # Smooth S-curve turn
+        elif ti < 80:
+            frac = (ti - 76) / 4
             s = 3 * frac**2 - 2 * frac**3
             heading[i] = np.deg2rad(45 + 90 * s)
         else:
@@ -259,45 +262,46 @@ def generate_route(duration_s, fs):
 
     # Define potholes as events
     pothole_times = [
-        # Easy potholes (low noise segment 30-40s) — each has 1x, 2x, 4x faster variants
-        (31.0, "rect", 0.050, 10.0),   # rect 50ms
-        (31.5, "rect", 0.025, 10.0),   # rect 25ms (2x faster)
-        (32.0, "rect", 0.0125, 10.0),  # rect 12.5ms (4x faster)
-        (33.0, "rect", 0.100, 8.0),    # rect 100ms
-        (33.5, "rect", 0.050, 8.0),    # rect 50ms (2x faster)
-        (34.0, "rect", 0.025, 8.0),    # rect 25ms (4x faster)
-        (35.0, "sinc", 0.050, 12.0),   # sinc 50ms
-        (35.5, "sinc", 0.025, 12.0),   # sinc 25ms (2x faster)
-        (36.0, "sinc", 0.0125, 12.0),  # sinc 12.5ms (4x faster)
-        (37.0, "sinc", 0.100, 7.0),    # sinc 100ms
-        (37.5, "sinc", 0.050, 7.0),    # sinc 50ms (2x faster)
-        (38.0, "sinc", 0.025, 7.0),    # sinc 25ms (4x faster)
-        # Hard potholes (high noise segment 80-90s) — same with speed variants
-        (81.0, "rect", 0.050, 10.0),
-        (81.5, "rect", 0.025, 10.0),
-        (82.0, "rect", 0.0125, 10.0),
-        (83.0, "rect", 0.100, 8.0),
-        (83.5, "rect", 0.050, 8.0),
-        (84.0, "rect", 0.025, 8.0),
-        (85.0, "sinc", 0.050, 12.0),
-        (85.5, "sinc", 0.025, 12.0),
-        (86.0, "sinc", 0.0125, 12.0),
-        (87.0, "sinc", 0.100, 7.0),
-        (87.5, "sinc", 0.050, 7.0),
-        (88.0, "sinc", 0.025, 7.0),
-        # Tilted phone potholes (100-120s) — same with speed variants
-        (102.0, "rect", 0.050, 10.0),
-        (102.5, "rect", 0.025, 10.0),
-        (103.0, "rect", 0.0125, 10.0),
-        (105.0, "rect", 0.100, 8.0),
-        (105.5, "rect", 0.050, 8.0),
-        (106.0, "rect", 0.025, 8.0),
-        (108.0, "sinc", 0.050, 12.0),
-        (108.5, "sinc", 0.025, 12.0),
-        (109.0, "sinc", 0.0125, 12.0),
-        (112.0, "sinc", 0.100, 7.0),
-        (112.5, "sinc", 0.050, 7.0),
+        # Easy potholes (low noise segment 30-55s) — each has 1x, 2x, 4x faster variants
+        # Spaced 3s apart so the 1-second rolling activity window doesn't overlap
+        (30.0, "rect", 0.050, 10.0),   # rect 50ms
+        (33.0, "rect", 0.025, 10.0),   # rect 25ms (2x faster)
+        (36.0, "rect", 0.0125, 10.0),  # rect 12.5ms (4x faster)
+        (39.0, "rect", 0.100, 8.0),    # rect 100ms
+        (42.0, "rect", 0.050, 8.0),    # rect 50ms (2x faster)
+        (45.0, "rect", 0.025, 8.0),    # rect 25ms (4x faster)
+        (48.0, "sinc", 0.050, 12.0),   # sinc 50ms
+        (51.0, "sinc", 0.025, 12.0),   # sinc 25ms (2x faster)
+        (54.0, "sinc", 0.0125, 12.0),  # sinc 12.5ms (4x faster)
+        (57.0, "sinc", 0.100, 7.0),    # sinc 100ms
+        (60.0, "sinc", 0.050, 7.0),    # sinc 50ms (2x faster)
+        (63.0, "sinc", 0.025, 7.0),    # sinc 25ms (4x faster)
+        # Hard potholes (high noise segment 80-120s) — same with speed variants
+        (80.0, "rect", 0.050, 10.0),
+        (83.0, "rect", 0.025, 10.0),
+        (86.0, "rect", 0.0125, 10.0),
+        (89.0, "rect", 0.100, 8.0),
+        (92.0, "rect", 0.050, 8.0),
+        (95.0, "rect", 0.025, 8.0),
+        (98.0, "sinc", 0.050, 12.0),
+        (101.0, "sinc", 0.025, 12.0),
+        (104.0, "sinc", 0.0125, 12.0),
+        (107.0, "sinc", 0.100, 7.0),
+        (110.0, "sinc", 0.050, 7.0),
         (113.0, "sinc", 0.025, 7.0),
+        # Tilted phone potholes (130-170s) — same with speed variants
+        (130.0, "rect", 0.050, 10.0),
+        (133.0, "rect", 0.025, 10.0),
+        (136.0, "rect", 0.0125, 10.0),
+        (139.0, "rect", 0.100, 8.0),
+        (142.0, "rect", 0.050, 8.0),
+        (145.0, "rect", 0.025, 8.0),
+        (148.0, "sinc", 0.050, 12.0),
+        (151.0, "sinc", 0.025, 12.0),
+        (154.0, "sinc", 0.0125, 12.0),
+        (157.0, "sinc", 0.100, 7.0),
+        (160.0, "sinc", 0.050, 7.0),
+        (163.0, "sinc", 0.025, 7.0),
     ]
 
     for pt_time, wf, dur, sev in pothole_times:
@@ -309,18 +313,18 @@ def generate_route(duration_s, fs):
 def generate_phone_tilt(t, fs):
     """Generate phone tilt angle over time.
 
-    0-90s: vertical (0 rad tilt)
-    90-100s: gradual tilt from 0 to 45° forward
-    100-120s: 45° forward tilt
+    0-116s: vertical (0 rad tilt)
+    116-120s: gradual tilt from 0 to 45° forward
+    120-180s: 45° forward tilt
     """
     n = len(t)
     tilt = np.zeros(n)
     for i in range(n):
         ti = t[i]
-        if ti < 90:
+        if ti < 116:
             tilt[i] = 0
-        elif ti < 100:
-            frac = (ti - 90) / 10
+        elif ti < 120:
+            frac = (ti - 116) / 4
             tilt[i] = np.deg2rad(45) * (3 * frac**2 - 2 * frac**3)
         else:
             tilt[i] = np.deg2rad(45)
@@ -392,7 +396,7 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
         Path to the created session directory.
     """
     rng = np.random.default_rng(seed)
-    duration_s = 120
+    duration_s = 180
     session_id = f"synthetic_{scenario}"
 
     print(f"Generating synthetic session: {session_id} ({duration_s}s)")
@@ -432,14 +436,12 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
     noise_gyro = np.zeros((n_accel, 3))
 
     noise_segments = [
-        (0, 10, "white", 0.02, 0.001),      # stopped: very low noise
-        (10, 30, "white", 0.10, 0.005),      # cruising, smooth road
-        (30, 40, "white", 0.08, 0.004),      # smooth road (easy potholes)
-        (40, 55, "white", 0.05, 0.002),      # braking/stopped
-        (55, 70, "white", 0.12, 0.006),      # turning
-        (70, 90, "brownian", 0.50, 0.025),   # degraded road (hard potholes)
-        (90, 100, "white", 0.15, 0.008),     # orientation change
-        (100, 120, "white", 0.15, 0.008),    # tilted phone potholes
+        (0, 10, "white", 0.02, 0.001),       # stopped: very low noise
+        (10, 66, "white", 0.10, 0.005),       # cruising, smooth road + easy potholes
+        (66, 80, "white", 0.05, 0.002),       # braking/stopped/turning
+        (80, 120, "brownian", 0.50, 0.025),   # degraded road + hard potholes
+        (120, 170, "white", 0.15, 0.008),     # tilted phone potholes
+        (170, 180, "white", 0.05, 0.002),     # braking to stop
     ]
 
     for t_start, t_end, ntype, rms_a, rms_g in noise_segments:
@@ -622,10 +624,11 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
             "duration_s": duration_s,
             "accel_hz": ACCEL_HZ,
             "description": (
-                "0-10s stopped | 10-30s cruise 50km/h low noise | "
-                "30-40s 4 potholes easy | 40-55s braking+stop | "
-                "55-70s accel+turn | 70-90s high brownian noise + 4 potholes hard | "
-                "90-100s phone tilt 0→45° | 100-120s 4 potholes tilted phone"
+                "0-10s stopped | 10-66s cruise 50km/h smooth road | "
+                "30-63s 12 potholes easy (3s spacing) | 66-75s braking+stop | "
+                "75-80s accel+turn | 80-113s brownian noise + 12 potholes hard | "
+                "116-120s phone tilt 0→45° | 130-163s 12 potholes tilted phone | "
+                "170-180s braking to stop"
             ),
             "potholes": [
                 {"time_s": pt, "waveform": wf, "duration_s": dur, "severity_ms2": sev}
