@@ -259,21 +259,45 @@ def generate_route(duration_s, fs):
 
     # Define potholes as events
     pothole_times = [
-        # Easy potholes (low noise segment 30-40s)
-        (32.0, "rect", 0.050, 10.0),   # rect 50ms, 10 m/s²
-        (34.0, "rect", 0.100, 8.0),    # rect 100ms, 8 m/s²
-        (36.0, "sinc", 0.050, 12.0),   # sinc 50ms, 12 m/s²
-        (38.0, "sinc", 0.100, 7.0),    # sinc 100ms, 7 m/s²
-        # Hard potholes (high noise segment 80-90s)
+        # Easy potholes (low noise segment 30-40s) — each has 1x, 2x, 4x faster variants
+        (32.0, "rect", 0.050, 10.0),   # rect 50ms
+        (32.3, "rect", 0.025, 10.0),   # rect 25ms (2x faster)
+        (32.5, "rect", 0.0125, 10.0),  # rect 12.5ms (4x faster)
+        (34.0, "rect", 0.100, 8.0),    # rect 100ms
+        (34.4, "rect", 0.050, 8.0),    # rect 50ms (2x faster)
+        (34.7, "rect", 0.025, 8.0),    # rect 25ms (4x faster)
+        (36.0, "sinc", 0.050, 12.0),   # sinc 50ms
+        (36.3, "sinc", 0.025, 12.0),   # sinc 25ms (2x faster)
+        (36.5, "sinc", 0.0125, 12.0),  # sinc 12.5ms (4x faster)
+        (38.0, "sinc", 0.100, 7.0),    # sinc 100ms
+        (38.4, "sinc", 0.050, 7.0),    # sinc 50ms (2x faster)
+        (38.7, "sinc", 0.025, 7.0),    # sinc 25ms (4x faster)
+        # Hard potholes (high noise segment 80-90s) — same with speed variants
         (82.0, "rect", 0.050, 10.0),
+        (82.3, "rect", 0.025, 10.0),
+        (82.5, "rect", 0.0125, 10.0),
         (84.0, "rect", 0.100, 8.0),
+        (84.4, "rect", 0.050, 8.0),
+        (84.7, "rect", 0.025, 8.0),
         (86.0, "sinc", 0.050, 12.0),
+        (86.3, "sinc", 0.025, 12.0),
+        (86.5, "sinc", 0.0125, 12.0),
         (88.0, "sinc", 0.100, 7.0),
-        # Tilted phone potholes (100-120s)
+        (88.4, "sinc", 0.050, 7.0),
+        (88.7, "sinc", 0.025, 7.0),
+        # Tilted phone potholes (100-120s) — same with speed variants
         (105.0, "rect", 0.050, 10.0),
+        (105.3, "rect", 0.025, 10.0),
+        (105.5, "rect", 0.0125, 10.0),
         (108.0, "rect", 0.100, 8.0),
+        (108.4, "rect", 0.050, 8.0),
+        (108.7, "rect", 0.025, 8.0),
         (112.0, "sinc", 0.050, 12.0),
+        (112.3, "sinc", 0.025, 12.0),
+        (112.5, "sinc", 0.0125, 12.0),
         (116.0, "sinc", 0.100, 7.0),
+        (116.4, "sinc", 0.050, 7.0),
+        (116.7, "sinc", 0.025, 7.0),
     ]
 
     for pt_time, wf, dur, sev in pothole_times:
