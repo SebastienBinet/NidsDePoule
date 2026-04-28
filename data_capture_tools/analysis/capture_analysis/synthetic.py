@@ -10,8 +10,8 @@ Usage:
     session = generate_and_load("/tmp")  # returns dict like load_session()
 """
 
-SYNTHETIC_VERSION = "v020k"
-print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, duration=180s, 36 potholes, 3s spacing")
+SYNTHETIC_VERSION = "v020l"
+print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, duration=180s, 36 potholes, 3s spacing, energy-conserving")
 
 import json
 import os
@@ -264,47 +264,51 @@ def generate_route(duration_s, fs):
     speed = np.clip(speed, 0, None)
 
     # Define potholes as events
+    # Energy-conserving: when duration is divided by N, amplitude is multiplied
+    # by sqrt(N) so that energy (∝ amplitude² × duration) stays constant.
+    # Base potholes and their 2x/4x faster variants:
+    _s2 = np.sqrt(2)  # ~1.414
+    _s4 = np.sqrt(4)  # 2.0
     pothole_times = [
-        # Easy potholes (low noise segment 30-55s) — each has 1x, 2x, 4x faster variants
-        # Spaced 3s apart so the 1-second rolling activity window doesn't overlap
-        (30.0, "rect", 0.050, 10.0),   # rect 50ms
-        (33.0, "rect", 0.025, 10.0),   # rect 25ms (2x faster)
-        (36.0, "rect", 0.0125, 10.0),  # rect 12.5ms (4x faster)
-        (39.0, "rect", 0.100, 8.0),    # rect 100ms
-        (42.0, "rect", 0.050, 8.0),    # rect 50ms (2x faster)
-        (45.0, "rect", 0.025, 8.0),    # rect 25ms (4x faster)
-        (48.0, "sinc", 0.050, 12.0),   # sinc 50ms
-        (51.0, "sinc", 0.025, 12.0),   # sinc 25ms (2x faster)
-        (54.0, "sinc", 0.0125, 12.0),  # sinc 12.5ms (4x faster)
-        (57.0, "sinc", 0.100, 7.0),    # sinc 100ms
-        (60.0, "sinc", 0.050, 7.0),    # sinc 50ms (2x faster)
-        (63.0, "sinc", 0.025, 7.0),    # sinc 25ms (4x faster)
-        # Hard potholes (high noise segment 80-120s) — same with speed variants
+        # Easy potholes (low noise segment 30-66s) — 3s spacing
+        (30.0, "rect", 0.050, 10.0),          # rect 50ms (base)
+        (33.0, "rect", 0.025, 10.0 * _s2),    # rect 25ms (2x faster, √2 amplitude)
+        (36.0, "rect", 0.0125, 10.0 * _s4),   # rect 12.5ms (4x faster, 2x amplitude)
+        (39.0, "rect", 0.100, 8.0),            # rect 100ms (base)
+        (42.0, "rect", 0.050, 8.0 * _s2),      # rect 50ms (2x faster)
+        (45.0, "rect", 0.025, 8.0 * _s4),      # rect 25ms (4x faster)
+        (48.0, "sinc", 0.050, 12.0),           # sinc 50ms (base)
+        (51.0, "sinc", 0.025, 12.0 * _s2),     # sinc 25ms (2x faster)
+        (54.0, "sinc", 0.0125, 12.0 * _s4),   # sinc 12.5ms (4x faster)
+        (57.0, "sinc", 0.100, 7.0),            # sinc 100ms (base)
+        (60.0, "sinc", 0.050, 7.0 * _s2),      # sinc 50ms (2x faster)
+        (63.0, "sinc", 0.025, 7.0 * _s4),      # sinc 25ms (4x faster)
+        # Hard potholes (high noise segment 80-116s) — same with speed variants
         (80.0, "rect", 0.050, 10.0),
-        (83.0, "rect", 0.025, 10.0),
-        (86.0, "rect", 0.0125, 10.0),
+        (83.0, "rect", 0.025, 10.0 * _s2),
+        (86.0, "rect", 0.0125, 10.0 * _s4),
         (89.0, "rect", 0.100, 8.0),
-        (92.0, "rect", 0.050, 8.0),
-        (95.0, "rect", 0.025, 8.0),
+        (92.0, "rect", 0.050, 8.0 * _s2),
+        (95.0, "rect", 0.025, 8.0 * _s4),
         (98.0, "sinc", 0.050, 12.0),
-        (101.0, "sinc", 0.025, 12.0),
-        (104.0, "sinc", 0.0125, 12.0),
+        (101.0, "sinc", 0.025, 12.0 * _s2),
+        (104.0, "sinc", 0.0125, 12.0 * _s4),
         (107.0, "sinc", 0.100, 7.0),
-        (110.0, "sinc", 0.050, 7.0),
-        (113.0, "sinc", 0.025, 7.0),
+        (110.0, "sinc", 0.050, 7.0 * _s2),
+        (113.0, "sinc", 0.025, 7.0 * _s4),
         # Tilted phone potholes (130-170s) — same with speed variants
         (130.0, "rect", 0.050, 10.0),
-        (133.0, "rect", 0.025, 10.0),
-        (136.0, "rect", 0.0125, 10.0),
+        (133.0, "rect", 0.025, 10.0 * _s2),
+        (136.0, "rect", 0.0125, 10.0 * _s4),
         (139.0, "rect", 0.100, 8.0),
-        (142.0, "rect", 0.050, 8.0),
-        (145.0, "rect", 0.025, 8.0),
+        (142.0, "rect", 0.050, 8.0 * _s2),
+        (145.0, "rect", 0.025, 8.0 * _s4),
         (148.0, "sinc", 0.050, 12.0),
-        (151.0, "sinc", 0.025, 12.0),
-        (154.0, "sinc", 0.0125, 12.0),
+        (151.0, "sinc", 0.025, 12.0 * _s2),
+        (154.0, "sinc", 0.0125, 12.0 * _s4),
         (157.0, "sinc", 0.100, 7.0),
-        (160.0, "sinc", 0.050, 7.0),
-        (163.0, "sinc", 0.025, 7.0),
+        (160.0, "sinc", 0.050, 7.0 * _s2),
+        (163.0, "sinc", 0.025, 7.0 * _s4),
     ]
 
     for pt_time, wf, dur, sev in pothole_times:
