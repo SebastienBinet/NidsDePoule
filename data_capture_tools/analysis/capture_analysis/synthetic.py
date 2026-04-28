@@ -10,6 +10,9 @@ Usage:
     session = generate_and_load("/tmp")  # returns dict like load_session()
 """
 
+SYNTHETIC_VERSION = "v020k"
+print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, duration=180s, 36 potholes, 3s spacing")
+
 import json
 import os
 from pathlib import Path
