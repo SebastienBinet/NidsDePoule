@@ -66,9 +66,13 @@ def load_session(session_dir: str | Path) -> dict:
     # Load events
     events = _load_events_csv(d, boot_offset_ms, start_boot_ns)
 
+    # Load quarter-car positions (synthetic sessions only)
+    positions = _load_sensor_csv(d, "positions", start_boot_ns)
+
     return {
         "meta": meta, "accel": accel, "lin_accel": lin_accel,
         "gyro": gyro, "mag": mag, "gps": gps, "events": events,
+        "positions": positions,
     }
 
 

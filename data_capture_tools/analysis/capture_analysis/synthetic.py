@@ -10,7 +10,7 @@ Usage:
     session = generate_and_load("/tmp")  # returns dict like load_session()
 """
 
-SYNTHETIC_VERSION = "v020o"
+SYNTHETIC_VERSION = "v020r"
 print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, 180s, 36 potholes, quarter-car physics")
 
 import json
@@ -169,7 +169,7 @@ def inject_pothole(accel_world, gyro_world, t_center_s, depth_m, length_m,
     from .vehicle_model import QuarterCarModel, pothole_profile
 
     if speed_mps < 0.5:
-        return
+        return None
 
     model = QuarterCarModel(**(car_params or {}))
 
@@ -188,7 +188,7 @@ def inject_pothole(accel_world, gyro_world, t_center_s, depth_m, length_m,
     threshold = peak * 0.001
     nonzero = np.where(np.abs(z_s_ddot) > threshold)[0]
     if len(nonzero) == 0:
-        return
+        return None
     sig_start = max(0, nonzero[0] - 10)
     sig_end = min(len(z_s_ddot), nonzero[-1] + 10)
     pulse = z_s_ddot[sig_start:sig_end]
@@ -202,7 +202,7 @@ def inject_pothole(accel_world, gyro_world, t_center_s, depth_m, length_m,
     idx_end = idx_start + n_pulse
 
     if idx_start < 0 or idx_end > len(accel_world):
-        return
+        return None
 
     # Multi-axis coupling
     lateral_sign = rng.choice([-1, 1])
@@ -219,6 +219,20 @@ def inject_pothole(accel_world, gyro_world, t_center_s, depth_m, length_m,
     gyro_world[idx_start:idx_end, 0] += dpulse * scale                     # Pitch (around East)
     gyro_world[idx_start:idx_end, 1] += dpulse * scale * 0.30              # Roll (around North)
     gyro_world[idx_start:idx_end, 2] += dpulse * scale * 0.15 * lateral_sign  # Yaw
+
+    # Return position time-series for visualization
+    # Convert simulation positions to real time, aligned with the main timeline
+    z_s_pos = result["z_s"][sig_start:sig_end]  # sprung mass displacement (m)
+    z_u_pos = result["z_u"][sig_start:sig_end]  # unsprung mass displacement (m)
+    z_r_pos = result["z_r"][sig_start:sig_end]  # road profile (m)
+    t_real = np.arange(idx_start, idx_end) / fs  # real time for each sample
+
+    return {
+        "t": t_real,
+        "z_s": z_s_pos,  # car body corner height (0 = road level)
+        "z_u": z_u_pos,  # wheel hub height
+        "z_r": z_r_pos,  # road profile (pothole shape)
+    }
 
 
 # =============================================================================
@@ -489,10 +503,24 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
     from .vehicle_model import compute_contact_timeline
     print(f"  Injecting {len(pothole_times)} potholes (quarter-car model)...")
     contact_timelines = []
+    # Collect position data for visualization: z_s (body), z_u (hub), z_r (road)
+    # Stored as arrays spanning the full session (0 where no pothole)
+    positions_z_s = np.zeros(n_accel)  # car body corner displacement
+    positions_z_u = np.zeros(n_accel)  # wheel hub displacement
+    positions_z_r = np.zeros(n_accel)  # road profile
     for pt_time, depth, length, label in pothole_times:
         pt_idx = min(int(pt_time * ACCEL_HZ), n_accel - 1)
         pt_speed = speed[pt_idx]
-        inject_pothole(accel_world, gyro_world, pt_time, depth, length, pt_speed, ACCEL_HZ, rng)
+        pos_data = inject_pothole(accel_world, gyro_world, pt_time, depth, length, pt_speed, ACCEL_HZ, rng)
+        if pos_data is not None:
+            # Map position data into the full-session arrays
+            t_pos = pos_data["t"]
+            i0 = int(t_pos[0] * ACCEL_HZ)
+            i1 = i0 + len(t_pos)
+            if 0 <= i0 and i1 <= n_accel:
+                positions_z_s[i0:i1] += pos_data["z_s"]
+                positions_z_u[i0:i1] += pos_data["z_u"]
+                positions_z_r[i0:i1] += pos_data["z_r"]
         ct = compute_contact_timeline(depth, length, pt_speed, wheel_radius=0.315, t_entry=pt_time)
         ct["label"] = label
         ct["depth_m"] = depth
@@ -630,6 +658,16 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
         lambda f: f.writelines(f"{ts},{et},{src}\n" for ts, et, src in event_rows),
     )
     print(f"    events: {len(event_rows)} markers")
+
+    # Quarter-car positions (for drill-down visualization)
+    write_csv(
+        f"positions_{session_id}.csv",
+        "timestamp_ns,z_s_m,z_u_m,z_r_m",
+        lambda f: np.savetxt(f, np.column_stack([
+            ts_accel_ns, positions_z_s, positions_z_u, positions_z_r
+        ]), fmt="%d,%.6f,%.6f,%.6f"),
+    )
+    print(f"    positions: {n_accel:,} samples")
 
     # Meta
     meta = {
