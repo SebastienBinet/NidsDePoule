@@ -10,8 +10,8 @@ Usage:
     session = generate_and_load("/tmp")  # returns dict like load_session()
 """
 
-SYNTHETIC_VERSION = "v020l"
-print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, duration=180s, 36 potholes, 3s spacing, energy-conserving")
+SYNTHETIC_VERSION = "v020m"
+print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, 180s, 36 potholes, quarter-car physics")
 
 import json
 import os
@@ -147,54 +147,75 @@ def generate_gyro_noise(n, noise_type, rms_pitch, fs, rng):
 
 
 # =============================================================================
-# Pothole waveforms
+# Pothole injection using quarter-car physics
 # =============================================================================
 
-def _rect_pulse(n_samples, severity):
-    return np.full(n_samples, severity)
+def inject_pothole(accel_world, gyro_world, t_center_s, depth_m, length_m,
+                   speed_mps, fs, rng, car_params=None):
+    """Inject a physically-accurate pothole into world-frame accel and gyro.
 
+    Uses the quarter-car model (2-DOF: sprung + unsprung mass) to compute
+    the vertical acceleration of the car body. The pothole road profile is
+    a half-sine depression.
 
-def _sinc_pulse(n_samples, severity):
-    t = np.linspace(-3, 3, n_samples)
-    pulse = np.sinc(t) * severity
-    return pulse
-
-
-def inject_pothole(accel_world, gyro_world, t_center_s, duration_s, waveform, severity_ms2, fs, rng):
-    """Inject a pothole impulse into world-frame accel and gyro arrays.
-
-    The pothole primarily affects:
-    - Vertical acceleration (Up axis): main impact
-    - Forward acceleration (North axis): ~20% of vertical (pitch effect)
-    - Lateral acceleration (East axis): ~10% (random asymmetry)
-    - Gyro pitch: proportional to vertical accel derivative
+    Multi-axis coupling:
+    - Vertical (Up): main impact from quarter-car model
+    - Forward (North): ~20% of vertical (pitch effect from front wheel hitting first)
+    - Lateral (East): ~10% random sign (asymmetric wheel hit)
+    - Gyro pitch: proportional to derivative of vertical accel
     - Gyro roll: ~30% of pitch
-    - Gyro yaw: ~15% of pitch
+    - Gyro yaw: ~15% of pitch, random sign
     """
-    idx_center = int(t_center_s * fs)
-    n_samples = max(2, int(duration_s * fs))
-    idx_start = idx_center - n_samples // 2
-    idx_end = idx_start + n_samples
+    from .vehicle_model import QuarterCarModel, pothole_profile
+
+    if speed_mps < 0.5:
+        return
+
+    model = QuarterCarModel(**(car_params or {}))
+
+    # Simulate the pothole impact
+    T_cross = length_m / speed_mps
+    sim_duration = max(1.5, T_cross * 30)  # enough for oscillation to decay
+    t_sim = np.arange(0, sim_duration, 1.0 / fs)
+    t_enter_sim = 0.1  # small lead-in
+
+    profile = pothole_profile(depth_m, length_m, speed_mps, t_enter_sim)
+    result = model.simulate(t_sim, profile)
+    z_s_ddot = result["z_s_ddot"]
+
+    # Trim to the significant part (where |accel| > 0.1% of peak)
+    peak = np.max(np.abs(z_s_ddot))
+    threshold = peak * 0.001
+    nonzero = np.where(np.abs(z_s_ddot) > threshold)[0]
+    if len(nonzero) == 0:
+        return
+    sig_start = max(0, nonzero[0] - 10)
+    sig_end = min(len(z_s_ddot), nonzero[-1] + 10)
+    pulse = z_s_ddot[sig_start:sig_end]
+    n_pulse = len(pulse)
+
+    # Align so the pothole ENTRY (where the main impact starts) coincides with t_center_s.
+    # The entry in the simulation is at t_enter_sim, and sig_start is the first significant sample.
+    # So the entry offset within the pulse is approximately (t_enter_sim * fs - sig_start) samples.
+    entry_offset = int(t_enter_sim * fs) - sig_start
+    idx_start = int(t_center_s * fs) - max(0, entry_offset)
+    idx_end = idx_start + n_pulse
 
     if idx_start < 0 or idx_end > len(accel_world):
         return
 
-    if waveform == "rect":
-        pulse = _rect_pulse(n_samples, severity_ms2)
-    elif waveform == "sinc":
-        pulse = _sinc_pulse(n_samples, severity_ms2)
-    else:
-        raise ValueError(f"Unknown waveform: {waveform}")
-
-    # Directional coupling
+    # Multi-axis coupling
     lateral_sign = rng.choice([-1, 1])
-    accel_world[idx_start:idx_end, 2] += pulse                            # Up (main)
-    accel_world[idx_start:idx_end, 1] += pulse * 0.20                     # North (forward pitch)
-    accel_world[idx_start:idx_end, 0] += pulse * 0.10 * lateral_sign      # East (asymmetry)
+    accel_world[idx_start:idx_end, 2] += pulse                         # Up (main)
+    accel_world[idx_start:idx_end, 1] += pulse * 0.20                  # North (pitch)
+    accel_world[idx_start:idx_end, 0] += pulse * 0.10 * lateral_sign   # East (asymmetry)
 
-    # Gyro: derivative of the acceleration pulse → angular impulse
+    # Gyro: derivative of vertical accel → angular velocity change
     dpulse = np.gradient(pulse, 1.0 / fs)
-    scale = 0.02  # rad/s per m/s³ — empirical coupling factor
+    scale = 0.015  # rad/s per m/s³
+    gyro_world[idx_start:idx_end, 0] += dpulse * scale                          # Pitch
+    gyro_world[idx_start:idx_end, 1] += dpulse * scale * 0.30                   # Roll
+    gyro_world[idx_start:idx_end, 2] += dpulse * scale * 0.15 * lateral_sign    # Yaw
     gyro_world[idx_start:idx_end, 0] += dpulse * scale                     # Pitch (around East)
     gyro_world[idx_start:idx_end, 1] += dpulse * scale * 0.30              # Roll (around North)
     gyro_world[idx_start:idx_end, 2] += dpulse * scale * 0.15 * lateral_sign  # Yaw
@@ -263,55 +284,56 @@ def generate_route(duration_s, fs):
 
     speed = np.clip(speed, 0, None)
 
-    # Define potholes as events
-    # Energy-conserving: when duration is divided by N, amplitude is multiplied
-    # by sqrt(N) so that energy (∝ amplitude² × duration) stays constant.
-    # Base potholes and their 2x/4x faster variants:
-    _s2 = np.sqrt(2)  # ~1.414
-    _s4 = np.sqrt(4)  # 2.0
-    pothole_times = [
-        # Easy potholes (low noise segment 30-66s) — 3s spacing
-        (30.0, "rect", 0.050, 10.0),          # rect 50ms (base)
-        (33.0, "rect", 0.025, 10.0 * _s2),    # rect 25ms (2x faster, √2 amplitude)
-        (36.0, "rect", 0.0125, 10.0 * _s4),   # rect 12.5ms (4x faster, 2x amplitude)
-        (39.0, "rect", 0.100, 8.0),            # rect 100ms (base)
-        (42.0, "rect", 0.050, 8.0 * _s2),      # rect 50ms (2x faster)
-        (45.0, "rect", 0.025, 8.0 * _s4),      # rect 25ms (4x faster)
-        (48.0, "sinc", 0.050, 12.0),           # sinc 50ms (base)
-        (51.0, "sinc", 0.025, 12.0 * _s2),     # sinc 25ms (2x faster)
-        (54.0, "sinc", 0.0125, 12.0 * _s4),   # sinc 12.5ms (4x faster)
-        (57.0, "sinc", 0.100, 7.0),            # sinc 100ms (base)
-        (60.0, "sinc", 0.050, 7.0 * _s2),      # sinc 50ms (2x faster)
-        (63.0, "sinc", 0.025, 7.0 * _s4),      # sinc 25ms (4x faster)
-        # Hard potholes (high noise segment 80-116s) — same with speed variants
-        (80.0, "rect", 0.050, 10.0),
-        (83.0, "rect", 0.025, 10.0 * _s2),
-        (86.0, "rect", 0.0125, 10.0 * _s4),
-        (89.0, "rect", 0.100, 8.0),
-        (92.0, "rect", 0.050, 8.0 * _s2),
-        (95.0, "rect", 0.025, 8.0 * _s4),
-        (98.0, "sinc", 0.050, 12.0),
-        (101.0, "sinc", 0.025, 12.0 * _s2),
-        (104.0, "sinc", 0.0125, 12.0 * _s4),
-        (107.0, "sinc", 0.100, 7.0),
-        (110.0, "sinc", 0.050, 7.0 * _s2),
-        (113.0, "sinc", 0.025, 7.0 * _s4),
-        # Tilted phone potholes (130-170s) — same with speed variants
-        (130.0, "rect", 0.050, 10.0),
-        (133.0, "rect", 0.025, 10.0 * _s2),
-        (136.0, "rect", 0.0125, 10.0 * _s4),
-        (139.0, "rect", 0.100, 8.0),
-        (142.0, "rect", 0.050, 8.0 * _s2),
-        (145.0, "rect", 0.025, 8.0 * _s4),
-        (148.0, "sinc", 0.050, 12.0),
-        (151.0, "sinc", 0.025, 12.0 * _s2),
-        (154.0, "sinc", 0.0125, 12.0 * _s4),
-        (157.0, "sinc", 0.100, 7.0),
-        (160.0, "sinc", 0.050, 7.0 * _s2),
-        (163.0, "sinc", 0.025, 7.0 * _s4),
+    # Define potholes with physical dimensions (depth × length).
+    # The quarter-car model computes the actual acceleration waveform.
+    # Same depth at different lengths → different crossing times → different signatures.
+    # (time_s, depth_m, length_m, label)
+    pothole_defs = [
+        # Phase 1: Easy potholes in low noise (30-66s, cruising at ~50 km/h)
+        # 3s spacing so the 1-second rolling window never overlaps two events
+        (30.0, 0.03, 0.20, "shallow_short"),     # 3cm deep, 20cm long
+        (33.0, 0.03, 0.40, "shallow_medium"),     # 3cm deep, 40cm long
+        (36.0, 0.03, 0.80, "shallow_long"),       # 3cm deep, 80cm long
+        (39.0, 0.05, 0.20, "moderate_short"),     # 5cm deep, 20cm
+        (42.0, 0.05, 0.40, "moderate_medium"),    # 5cm deep, 40cm
+        (45.0, 0.05, 0.80, "moderate_long"),      # 5cm deep, 80cm
+        (48.0, 0.08, 0.30, "deep_short"),         # 8cm deep, 30cm
+        (51.0, 0.08, 0.60, "deep_medium"),        # 8cm deep, 60cm
+        (54.0, 0.10, 0.40, "severe_short"),       # 10cm deep, 40cm
+        (57.0, 0.10, 0.80, "severe_long"),        # 10cm deep, 80cm
+        (60.0, 0.12, 0.50, "very_severe"),        # 12cm deep, 50cm
+        (63.0, 0.02, 0.15, "minor_crack"),        # 2cm deep, 15cm — barely a pothole
+        # Phase 2: Same potholes in high brownian noise (80-116s)
+        (80.0, 0.03, 0.20, "shallow_short_noisy"),
+        (83.0, 0.03, 0.40, "shallow_medium_noisy"),
+        (86.0, 0.03, 0.80, "shallow_long_noisy"),
+        (89.0, 0.05, 0.20, "moderate_short_noisy"),
+        (92.0, 0.05, 0.40, "moderate_medium_noisy"),
+        (95.0, 0.05, 0.80, "moderate_long_noisy"),
+        (98.0, 0.08, 0.30, "deep_short_noisy"),
+        (101.0, 0.08, 0.60, "deep_medium_noisy"),
+        (104.0, 0.10, 0.40, "severe_short_noisy"),
+        (107.0, 0.10, 0.80, "severe_long_noisy"),
+        (110.0, 0.12, 0.50, "very_severe_noisy"),
+        (113.0, 0.02, 0.15, "minor_crack_noisy"),
+        # Phase 3: Same potholes with phone tilted 45° (130-170s)
+        (130.0, 0.03, 0.20, "shallow_short_tilt"),
+        (133.0, 0.03, 0.40, "shallow_medium_tilt"),
+        (136.0, 0.03, 0.80, "shallow_long_tilt"),
+        (139.0, 0.05, 0.20, "moderate_short_tilt"),
+        (142.0, 0.05, 0.40, "moderate_medium_tilt"),
+        (145.0, 0.05, 0.80, "moderate_long_tilt"),
+        (148.0, 0.08, 0.30, "deep_short_tilt"),
+        (151.0, 0.08, 0.60, "deep_medium_tilt"),
+        (154.0, 0.10, 0.40, "severe_short_tilt"),
+        (157.0, 0.10, 0.80, "severe_long_tilt"),
+        (160.0, 0.12, 0.50, "very_severe_tilt"),
+        (163.0, 0.02, 0.15, "minor_crack_tilt"),
     ]
 
-    for pt_time, wf, dur, sev in pothole_times:
+    pothole_times = [(t, depth, length, label) for t, depth, length, label in pothole_defs]
+
+    for pt_time, _, _, _ in pothole_times:
         events.append((pt_time, "pothole", "synthetic"))
 
     return t, speed, heading, pothole_times, events
@@ -410,7 +432,7 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
 
     # --- Route ---
     print("  Route & vehicle dynamics...")
-    t, speed, heading, pothole_defs, events = generate_route(duration_s, ACCEL_HZ)
+    t, speed, heading, pothole_times, events = generate_route(duration_s, ACCEL_HZ)
     n_accel = len(t)
     phone_tilt = generate_phone_tilt(t, ACCEL_HZ)
 
@@ -464,9 +486,12 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
     gyro_world += noise_gyro
 
     # --- Potholes ---
-    print(f"  Injecting {len(pothole_defs)} potholes...")
-    for pt_time, waveform, dur, severity in pothole_defs:
-        inject_pothole(accel_world, gyro_world, pt_time, dur, waveform, severity, ACCEL_HZ, rng)
+    print(f"  Injecting {len(pothole_times)} potholes (quarter-car model)...")
+    for pt_time, depth, length, label in pothole_times:
+        # Use speed at the pothole time
+        pt_idx = min(int(pt_time * ACCEL_HZ), n_accel - 1)
+        pt_speed = speed[pt_idx]
+        inject_pothole(accel_world, gyro_world, pt_time, depth, length, pt_speed, ACCEL_HZ, rng)
 
     # --- Transform to phone frame ---
     print("  Phone-frame transformation...")
@@ -638,8 +663,8 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
                 "170-180s braking to stop"
             ),
             "potholes": [
-                {"time_s": pt, "waveform": wf, "duration_s": dur, "severity_ms2": sev}
-                for pt, wf, dur, sev in pothole_defs
+                {"time_s": pt, "depth_m": d, "length_m": l, "label": lb}
+                for pt, d, l, lb in pothole_times
             ],
         },
     }
