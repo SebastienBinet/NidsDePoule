@@ -10,7 +10,7 @@ Usage:
     session = generate_and_load("/tmp")  # returns dict like load_session()
 """
 
-SYNTHETIC_VERSION = "v020m"
+SYNTHETIC_VERSION = "v020o"
 print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, 180s, 36 potholes, quarter-car physics")
 
 import json
@@ -486,12 +486,18 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
     gyro_world += noise_gyro
 
     # --- Potholes ---
+    from .vehicle_model import compute_contact_timeline
     print(f"  Injecting {len(pothole_times)} potholes (quarter-car model)...")
+    contact_timelines = []
     for pt_time, depth, length, label in pothole_times:
-        # Use speed at the pothole time
         pt_idx = min(int(pt_time * ACCEL_HZ), n_accel - 1)
         pt_speed = speed[pt_idx]
         inject_pothole(accel_world, gyro_world, pt_time, depth, length, pt_speed, ACCEL_HZ, rng)
+        ct = compute_contact_timeline(depth, length, pt_speed, wheel_radius=0.315, t_entry=pt_time)
+        ct["label"] = label
+        ct["depth_m"] = depth
+        ct["length_m"] = length
+        contact_timelines.append(ct)
 
     # --- Transform to phone frame ---
     print("  Phone-frame transformation...")
@@ -665,6 +671,13 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
             "potholes": [
                 {"time_s": pt, "depth_m": d, "length_m": l, "label": lb}
                 for pt, d, l, lb in pothole_times
+            ],
+            "contact_timelines": [
+                {k: (float(v) if isinstance(v, (np.floating, np.integer))
+                     else bool(v) if isinstance(v, np.bool_)
+                     else v)
+                 for k, v in ct.items() if v is not None}
+                for ct in contact_timelines
             ],
         },
     }

@@ -175,7 +175,8 @@ def multi_pothole_profile(potholes, speed_mps):
 
 
 def simulate_pothole_impact(depth_m=0.05, length_m=0.40, speed_mps=13.9,
-                            duration_s=1.5, fs=500, **car_params):
+                            duration_s=1.5, fs=500, wheel_radius=0.315,
+                            **car_params):
     """Convenience function: simulate a single pothole impact.
 
     Args:
@@ -184,11 +185,12 @@ def simulate_pothole_impact(depth_m=0.05, length_m=0.40, speed_mps=13.9,
         speed_mps: vehicle speed (default 50 km/h = 13.9 m/s)
         duration_s: simulation duration (default 1.5s)
         fs: sample rate (default 500 Hz)
+        wheel_radius: tire radius in meters (default 0.315 for 205/55R16)
         **car_params: override QuarterCarModel parameters
 
     Returns:
         dict with t, z_s_ddot (sprung mass acceleration), z_r (road profile),
-        plus T_cross (pothole crossing time) and metadata
+        plus contact_timeline and metadata
     """
     model = QuarterCarModel(**car_params)
 
@@ -206,5 +208,91 @@ def simulate_pothole_impact(depth_m=0.05, length_m=0.40, speed_mps=13.9,
     result["body_bounce_hz"] = model.body_bounce_hz
     result["wheel_hop_hz"] = model.wheel_hop_hz
     result["damping_ratio"] = model.damping_ratio
+    result["contact_timeline"] = compute_contact_timeline(
+        depth_m, length_m, speed_mps, wheel_radius, t_enter
+    )
+
+    return result
+
+
+# ── Wheel-pothole contact geometry ──────────────────────────────
+
+def compute_contact_timeline(depth_m, length_m, speed_mps, wheel_radius=0.315, t_entry=0.0):
+    """Compute the timing of wheel-pothole contact phases.
+
+    Returns a dict with:
+        t_entry:       wheel center reaches entry edge
+        t_bottom:      wheel first contacts pothole bottom (None if bridging)
+        t_leave_bottom: wheel leaves pothole bottom (None if bridging)
+        t_exit_wall:   wheel contacts exit wall/corner
+        t_back_on_road: wheel fully back on road surface
+        bridges:       True if wheel never touches bottom
+        airborne_start: time when wheel loses road surface contact
+        airborne_end:  time when wheel regains road surface contact
+        bottom_contact_angle_deg: angle on wheel perimeter where it hits exit wall
+    """
+    R = wheel_radius
+    d = depth_m
+    L = length_m
+    v = speed_mps
+
+    if v < 0.1:
+        return {"t_entry": t_entry, "bridges": True}
+
+    # Bridge span: max gap the wheel can cross at this depth
+    if d < R:
+        L_bridge = 2 * np.sqrt(2 * R * d - d**2)
+    else:
+        L_bridge = 0  # wheel always falls in if d >= R
+
+    bridges = L < L_bridge
+
+    # Distance from entry edge to where wheel contacts bottom
+    if d < R:
+        x_bottom = np.sqrt(2 * R * d - d**2)
+    else:
+        x_bottom = R  # free fall case
+
+    # Timing (all relative to t_entry)
+    result = {
+        "t_entry": t_entry,
+        "bridges": bridges,
+        "L_bridge": L_bridge,
+        "x_bottom": x_bottom,
+    }
+
+    if bridges:
+        # Wheel transitions from entry corner to exit corner
+        # Maximum descent = R - sqrt(R² - (L/2)²)
+        max_descent = R - np.sqrt(R**2 - (L / 2)**2) if L < 2 * R else R
+        result["max_descent_m"] = max_descent
+        # Airborne from entry edge to exit recovery
+        # The exit recovery mirror distance
+        result["t_exit_wall"] = t_entry + L / v
+        result["t_back_on_road"] = t_entry + (L + x_bottom) / v
+        result["airborne_start"] = t_entry
+        result["airborne_end"] = result["t_back_on_road"]
+        result["t_bottom"] = None
+        result["t_leave_bottom"] = None
+    else:
+        # Wheel touches bottom
+        result["t_bottom"] = t_entry + x_bottom / v
+        result["t_leave_bottom"] = t_entry + (L - x_bottom) / v
+        result["t_exit_wall"] = t_entry + L / v
+
+        # Contact angle on wheel where it hits the exit wall
+        if d < R:
+            contact_angle = np.degrees(np.arccos(1 - d / R))
+        else:
+            contact_angle = 180.0
+        result["bottom_contact_angle_deg"] = contact_angle
+
+        # Exit recovery: mirror of entry descent
+        x_exit_recovery = x_bottom
+        result["t_back_on_road"] = t_entry + (L + x_exit_recovery) / v
+
+        # Airborne = entire period from entry to back on road
+        result["airborne_start"] = t_entry
+        result["airborne_end"] = result["t_back_on_road"]
 
     return result
