@@ -121,29 +121,103 @@ class QuarterCarModel:
 
 # ── Road profile generators ─────────────────────────────────────
 
-def pothole_profile(depth_m, length_m, speed_mps, t_enter=0.0):
-    """Create a half-sine pothole road profile function.
+def pothole_profile(depth_m, length_m, speed_mps, t_enter=0.0, wheel_radius=0.315):
+    """Create a geometrically accurate pothole road profile for a circular wheel.
 
-    The half-sine profile is the most common in automotive literature.
-    It produces a smooth dip from 0 to -depth and back to 0.
+    Models a circular wheel (radius R) rolling over a rectangular pothole
+    (vertical walls, flat bottom). The effective road height is determined
+    by the actual contact point on the wheel's perimeter — NOT the road
+    surface directly under the hub.
+
+    Phases:
+        1. Wheel on road (before entry edge)      → z = 0
+        2. Wheel tips over entry edge (arc)        → z = √(R²-x²) - R
+        3. Wheel on pothole bottom (if deep enough)→ z = -d
+        4. Wheel climbs exit edge (arc)            → z = √(R²-(L-x_hub)²) - R
+        5. Wheel back on road (after exit edge)    → z = 0
+
+    Here x_hub is the horizontal distance the hub has traveled past the
+    entry edge. The transition between phases depends on whether the
+    wheel bridges the pothole (never touches bottom) or descends to it.
 
     Args:
-        depth_m: pothole depth in meters (positive value, e.g. 0.05 for 5 cm)
+        depth_m: pothole depth (m, positive)
         length_m: pothole length along travel direction (m)
         speed_mps: vehicle speed (m/s)
-        t_enter: time when the wheel reaches the pothole leading edge (s)
+        t_enter: time when the hub reaches the entry edge (s)
+        wheel_radius: tire radius (m, default 0.315 for 205/55R16)
 
     Returns:
-        callable z_r(t) → road displacement (m, negative = depression)
+        callable z_r(t) → effective road height at wheel contact point (m)
     """
-    T_cross = length_m / speed_mps  # time to traverse the pothole
+    R = wheel_radius
+    d = depth_m
+    L = length_m
+    v = speed_mps
+
+    # Distance from entry edge where wheel contacts the bottom
+    # (from the geometry: wheel on entry corner, center at height R,
+    # bottom of wheel at height √(R²-x²) above corner, which equals
+    # d when x = √(2Rd - d²))
+    if d < R:
+        x_touch_bottom = np.sqrt(2 * R * d - d**2)
+    else:
+        x_touch_bottom = R  # wheel drops entirely
+
+    # Does the wheel bridge? (never touches bottom)
+    bridges = L < 2 * x_touch_bottom
+
+    if bridges:
+        # The wheel transitions from entry corner to exit corner.
+        # Transition happens at x_hub = L/2 (symmetry point).
+        # On entry corner: z = √(R² - x²) - R
+        # On exit corner:  z = √(R² - (L-x)²) - R
+        x_transition = L / 2.0
+    else:
+        x_leave_bottom = L - x_touch_bottom
 
     def z_r(t):
-        t_rel = t - t_enter
-        if 0 <= t_rel <= T_cross:
-            # Half-cosine: smooth dip from 0 to -depth and back
-            return -depth_m / 2 * (1 - np.cos(2 * np.pi * t_rel / T_cross))
-        return 0.0
+        x = (t - t_enter) * v  # hub distance past entry edge
+
+        if x <= 0 or x >= L + x_touch_bottom:
+            # Phase 1 or 5: on road surface
+            return 0.0
+
+        if x >= L:
+            # Phase 5 partial: hub past exit edge, wheel still climbing
+            # Wheel pivots on exit corner, hub is x-L past it
+            dx = x - L
+            if dx >= x_touch_bottom:
+                return 0.0
+            if dx < R:
+                return np.sqrt(R**2 - dx**2) - R
+            return -R  # shouldn't happen for dx < x_touch_bottom
+
+        if bridges:
+            if x <= x_transition:
+                # Tipping on entry corner
+                if x < R:
+                    return np.sqrt(R**2 - x**2) - R
+                return -R
+            else:
+                # Tipping on exit corner
+                dx_from_exit = L - x
+                if dx_from_exit < R:
+                    return np.sqrt(R**2 - dx_from_exit**2) - R
+                return -R
+        else:
+            if x < x_touch_bottom:
+                # Phase 2: tipping on entry corner (circular arc)
+                return np.sqrt(R**2 - x**2) - R
+            elif x <= x_leave_bottom:
+                # Phase 3: on the pothole bottom
+                return -d
+            else:
+                # Phase 4: climbing on exit corner (circular arc)
+                dx_from_exit = L - x
+                if dx_from_exit > 0 and dx_from_exit < R:
+                    return np.sqrt(R**2 - dx_from_exit**2) - R
+                return -d
 
     return z_r
 

@@ -10,7 +10,7 @@ Usage:
     session = generate_and_load("/tmp")  # returns dict like load_session()
 """
 
-SYNTHETIC_VERSION = "v020r"
+SYNTHETIC_VERSION = "v020s"
 print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, 180s, 36 potholes, quarter-car physics")
 
 import json
