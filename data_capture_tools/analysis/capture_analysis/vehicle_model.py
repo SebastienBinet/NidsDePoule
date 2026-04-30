@@ -179,45 +179,29 @@ def pothole_profile(depth_m, length_m, speed_mps, t_enter=0.0, wheel_radius=0.31
     def z_r(t):
         x = (t - t_enter) * v  # hub distance past entry edge
 
-        if x <= 0 or x >= L + x_touch_bottom:
-            # Phase 1 or 5: on road surface
-            return 0.0
-
-        if x >= L:
-            # Phase 5 partial: hub past exit edge, wheel still climbing
-            # Wheel pivots on exit corner, hub is x-L past it
-            dx = x - L
-            if dx >= x_touch_bottom:
-                return 0.0
-            if dx < R:
-                return np.sqrt(R**2 - dx**2) - R
-            return -R  # shouldn't happen for dx < x_touch_bottom
+        if x <= 0:
+            return 0.0  # on road before pothole
 
         if bridges:
-            if x <= x_transition:
-                # Tipping on entry corner
-                if x < R:
-                    return np.sqrt(R**2 - x**2) - R
-                return -R
+            if x >= L:
+                return 0.0  # back on road after bridging
+            if x <= L / 2:
+                return np.sqrt(R**2 - x**2) - R  # entry arc
             else:
-                # Tipping on exit corner
-                dx_from_exit = L - x
-                if dx_from_exit < R:
-                    return np.sqrt(R**2 - dx_from_exit**2) - R
-                return -R
+                dx = L - x
+                return np.sqrt(R**2 - dx**2) - R  # exit arc (mirror)
         else:
+            if x >= L:
+                return 0.0  # back on road after pothole
             if x < x_touch_bottom:
-                # Phase 2: tipping on entry corner (circular arc)
-                return np.sqrt(R**2 - x**2) - R
+                return np.sqrt(R**2 - x**2) - R  # entry arc
             elif x <= x_leave_bottom:
-                # Phase 3: on the pothole bottom
-                return -d
+                return -d  # on pothole bottom
             else:
-                # Phase 4: climbing on exit corner (circular arc)
-                dx_from_exit = L - x
-                if dx_from_exit > 0 and dx_from_exit < R:
-                    return np.sqrt(R**2 - dx_from_exit**2) - R
-                return -d
+                dx = L - x
+                if dx > 0:
+                    return np.sqrt(R**2 - dx**2) - R  # exit arc
+                return 0.0
 
     return z_r
 
