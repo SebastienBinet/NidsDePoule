@@ -88,6 +88,15 @@ When deploying a new version, update **both**:
 
 These must match. The version appears on the dashboard and in `/api/v1/debug/storage`.
 
+### Analysis Tools Version
+
+Every commit that changes analysis code must bump the version in **all three** locations (they must have the same value):
+1. `data_capture_tools/analysis/capture_analysis/synthetic.py` → `SYNTHETIC_VERSION`
+2. `data_capture_tools/analysis/notebooks/01_explore_session.ipynb` cell 2 → `NOTEBOOK_VERSION`
+3. `data_capture_tools/analysis/notebooks/01_explore_session.ipynb` cell 1 → cache buster `?v=<version>`
+
+Format: `v020x` where `x` is an incrementing letter (a-z, then aa, ab, ...).
+
 ## Data Capture Tools (`data_capture_tools/`)
 
 Separate app and analysis tools for collecting raw sensor data to develop pothole detection algorithms. See `docs/architecture/014-capture-tools.md` for full ADR.
