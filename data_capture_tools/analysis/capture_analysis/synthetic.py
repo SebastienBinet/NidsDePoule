@@ -10,7 +10,7 @@ Usage:
     session = generate_and_load("/tmp")  # returns dict like load_session()
 """
 
-SYNTHETIC_VERSION = "v020x"
+SYNTHETIC_VERSION = "v020y"
 print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, 240s, 48 potholes, nonlinear quarter-car")
 
 import json
@@ -217,10 +217,10 @@ def inject_pothole(accel_world, gyro_world, t_center_s, depth_m, length_m,
     gyro_world[idx_start:idx_end, 1] += dpulse * scale * 0.30                   # Roll
     gyro_world[idx_start:idx_end, 2] += dpulse * scale * 0.15 * lateral_sign    # Yaw
 
-    # Compute forces
+    # Compute forces (return deviations from static for additive overlay)
     from .vehicle_model import compute_forces, compute_horizontal_tire_force
     forces = compute_forces(result, model)
-    F_tire_v = forces["F_tire_v"][sig_start:sig_end]
+    F_tire_v_dev = forces["F_tire_v"][sig_start:sig_end] - model.static_tire_force
     F_susp = forces["F_susp"][sig_start:sig_end]
     F_tire_h = compute_horizontal_tire_force(
         forces["F_tire_v"], depth_m, length_m, speed_mps,
@@ -234,7 +234,7 @@ def inject_pothole(accel_world, gyro_world, t_center_s, depth_m, length_m,
         "z_s": result["z_s"][sig_start:sig_end],
         "z_u": result["z_u"][sig_start:sig_end],
         "z_r": result["z_r"][sig_start:sig_end],
-        "F_tire_v": F_tire_v,
+        "F_tire_v": F_tire_v_dev,
         "F_tire_h": F_tire_h,
         "F_susp": F_susp,
     }
@@ -544,7 +544,9 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
     positions_z_s = np.zeros(n_accel)
     positions_z_u = np.zeros(n_accel)
     positions_z_r = np.zeros(n_accel)
-    positions_F_tire_v = np.zeros(n_accel)
+    from .vehicle_model import QuarterCarModel
+    _default_model = QuarterCarModel()
+    positions_F_tire_v = np.full(n_accel, _default_model.static_tire_force)
     positions_F_tire_h = np.zeros(n_accel)
     positions_F_susp = np.zeros(n_accel)
     for pt_time, depth, length, label in pothole_times:
