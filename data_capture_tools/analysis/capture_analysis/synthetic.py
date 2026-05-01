@@ -11,7 +11,7 @@ Usage:
 """
 
 SYNTHETIC_VERSION = "v020w"
-print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, 180s, 36 potholes, quarter-car physics")
+print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, 240s, 48 potholes, nonlinear quarter-car")
 
 import json
 import os

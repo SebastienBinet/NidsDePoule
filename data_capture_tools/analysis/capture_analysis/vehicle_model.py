@@ -1,8 +1,9 @@
 """Quarter-car vehicle dynamics model for pothole impact simulation.
 
-Implements a 2-DOF (sprung + unsprung mass) model that accurately
-reproduces the vertical acceleration measured by a phone mounted
-inside a vehicle hitting a pothole.
+Implements a 2-DOF (sprung + unsprung mass) model with nonlinear tire
+(liftoff capability). When the tire loses contact with the road, the
+tire force drops to zero and the wheel goes into free fall under gravity
+plus suspension force.
 
 References:
     - Gillespie, T.D. (1992) "Fundamentals of Vehicle Dynamics", SAE
@@ -14,6 +15,8 @@ References:
 import numpy as np
 from scipy.integrate import solve_ivp
 
+
+GRAVITY = 9.81  # m/s²
 
 # Default parameters for a sedan (Toyota Corolla class)
 DEFAULT_PARAMS = {
@@ -62,21 +65,32 @@ class QuarterCarModel:
     def damping_ratio(self):
         return self.c_s / (2 * np.sqrt(self.k_s * self.m_s))
 
+    @property
+    def static_tire_force(self):
+        return (self.m_s + self.m_u) * GRAVITY
+
+    @property
+    def static_tire_deflection(self):
+        return self.static_tire_force / self.k_t
+
     def simulate(self, t_eval, road_profile_func, x0=None):
-        """Solve the quarter-car ODE for a given road profile.
+        """Solve the quarter-car ODE with nonlinear tire (liftoff).
+
+        The tire can only push (compression), never pull. When the total
+        tire force would go negative, it is clamped to zero and the wheel
+        enters free fall under gravity + suspension force.
+
+        State vector uses deviations from static equilibrium. Gravity is
+        implicit when tire is in contact (cancels out), and explicit when
+        tire separates (unbalanced weight appears).
 
         Args:
-            t_eval: time points at which to evaluate (s), e.g. np.arange(0, 2, 1/500)
-            road_profile_func: callable z_r(t) → vertical road displacement (m, negative = depression)
-            x0: initial state [z_s, z_s_dot, z_u, z_u_dot], default all zeros
+            t_eval: time points (s)
+            road_profile_func: callable z_r(t) → road displacement (m)
+            x0: initial state [z_s, z_s_dot, z_u, z_u_dot]
 
         Returns:
-            dict with keys:
-                t: time array (same as t_eval)
-                z_s: sprung mass displacement (m)
-                z_u: unsprung mass displacement (m)
-                z_s_ddot: sprung mass acceleration (m/s², what the phone measures)
-                z_r: road profile at each time point
+            dict with t, z_s, z_s_dot, z_u, z_u_dot, z_s_ddot, z_r
         """
         if x0 is None:
             x0 = [0.0, 0.0, 0.0, 0.0]
@@ -84,17 +98,29 @@ class QuarterCarModel:
         m_s, m_u = self.m_s, self.m_u
         k_s, c_s = self.k_s, self.c_s
         k_t, c_t = self.k_t, self.c_t
+        W = (m_s + m_u) * GRAVITY
 
         def ode(t, x):
             z_s, z_s_dot, z_u, z_u_dot = x
             z_r = road_profile_func(t)
-            # Estimate road velocity via small finite difference
-            dt_fd = 1e-5
-            z_r_dot = (road_profile_func(t + dt_fd) - road_profile_func(t - dt_fd)) / (2 * dt_fd)
+
+            # Total tire force (must be >= 0: tire can only push)
+            F_tire = W - k_t * (z_u - z_r)
+            if c_t != 0:
+                dt_fd = 1e-5
+                z_r_dot = (road_profile_func(t + dt_fd) -
+                           road_profile_func(t - dt_fd)) / (2 * dt_fd)
+                F_tire -= c_t * (z_u_dot - z_r_dot)
+            if F_tire < 0:
+                F_tire = 0.0
+
+            # Deviation tire contribution: F_tire - W
+            # (when in contact: -k_t*(z_u-z_r), when separated: -W)
+            tire_dev = F_tire - W
 
             z_s_ddot = (-k_s * (z_s - z_u) - c_s * (z_s_dot - z_u_dot)) / m_s
             z_u_ddot = (k_s * (z_s - z_u) + c_s * (z_s_dot - z_u_dot)
-                        - k_t * (z_u - z_r) - c_t * (z_u_dot - z_r_dot)) / m_u
+                        + tire_dev) / m_u
             return [z_s_dot, z_s_ddot, z_u_dot, z_u_ddot]
 
         t_span = (t_eval[0], t_eval[-1])
@@ -106,7 +132,6 @@ class QuarterCarModel:
         z_u = sol.y[2]
         z_u_dot = sol.y[3]
 
-        # Sprung mass acceleration (what the accelerometer measures)
         z_s_ddot = (-k_s * (z_s - z_u) - c_s * (z_s_dot - z_u_dot)) / m_s
         z_r = np.array([road_profile_func(ti) for ti in t_eval])
 
@@ -209,16 +234,16 @@ def pothole_profile(depth_m, length_m, speed_mps, t_enter=0.0, wheel_radius=0.31
 
 
 def compute_forces(result, model):
-    """Compute tire and suspension forces from simulation result.
+    """Compute total tire and suspension forces from simulation result.
 
     Returns dict with:
-        F_tire_v: vertical tire force (N, positive = pushing wheel up)
-        F_susp:   suspension force (N, positive = pushing body up)
+        F_tire_v: total vertical tire force (N, >= 0, positive = up on wheel).
+                  Equals (m_s+m_u)*g on flat road, 0 during tire separation,
+                  large positive during impact.
+        F_susp:   suspension force deviation from static (N). Centered around 0.
     """
-    F_tire_v = model.k_t * (result["z_u"] - result["z_r"])
-    if model.c_t != 0:
-        z_r_dot = np.gradient(result["z_r"], result["t"])
-        F_tire_v += model.c_t * (result["z_u_dot"] - z_r_dot)
+    W = model.static_tire_force
+    F_tire_v = np.maximum(0.0, W - model.k_t * (result["z_u"] - result["z_r"]))
     F_susp = model.k_s * (result["z_s"] - result["z_u"]) + \
              model.c_s * (result["z_s_dot"] - result["z_u_dot"])
     return {"F_tire_v": F_tire_v, "F_susp": F_susp}
@@ -226,13 +251,15 @@ def compute_forces(result, model):
 
 def compute_horizontal_tire_force(F_tire_v, depth_m, length_m, speed_mps,
                                   t_enter, wheel_radius, t_array):
-    """Compute horizontal force from wheel-pothole edge contact geometry.
+    """Compute horizontal tire force from wheel-pothole edge contact geometry.
 
-    When the wheel rolls over an edge, the reaction force has a horizontal
-    component: F_h = F_v × tan(contact_angle). The contact angle depends
-    on the wheel position on the circular arc over the edge.
+    At the entry edge, the contact normal from the edge corner toward the
+    hub center has a forward component: F_h = +F_v * x/√(R²-x²).
+    At the exit edge, the normal points backward: F_h = -F_v * dx/√(R²-dx²).
 
-    Returns array of horizontal force (N, positive = forward / direction of travel).
+    When F_tire_v = 0 (separation), F_h = 0 automatically.
+
+    Returns array of horizontal force (N, positive = forward).
     """
     R = wheel_radius
     d = depth_m
@@ -248,32 +275,27 @@ def compute_horizontal_tire_force(F_tire_v, depth_m, length_m, speed_mps,
     F_h = np.zeros_like(F_tire_v)
 
     for i, t in enumerate(t_array):
-        x = (t - t_enter) * v  # hub distance past entry edge
+        x = (t - t_enter) * v
 
         if x <= 0 or x >= L:
-            continue  # on flat road, no horizontal component
+            continue
 
         if bridges:
             if x <= L / 2:
-                # Entry arc: contact angle θ where tan(θ) = x / √(R²-x²)
-                if x > 0 and x < R:
-                    F_h[i] = -F_tire_v[i] * x / np.sqrt(R**2 - x**2)
+                if 0 < x < R:
+                    F_h[i] = F_tire_v[i] * x / np.sqrt(R**2 - x**2)
             else:
-                # Exit arc (mirror)
                 dx = L - x
-                if dx > 0 and dx < R:
-                    F_h[i] = F_tire_v[i] * dx / np.sqrt(R**2 - dx**2)
+                if 0 < dx < R:
+                    F_h[i] = -F_tire_v[i] * dx / np.sqrt(R**2 - dx**2)
         else:
             if x < x_touch:
-                # Entry arc
                 if x > 0:
-                    F_h[i] = -F_tire_v[i] * x / np.sqrt(R**2 - x**2)
+                    F_h[i] = F_tire_v[i] * x / np.sqrt(R**2 - x**2)
             elif x > L - x_touch:
-                # Exit arc
                 dx = L - x
                 if dx > 0:
-                    F_h[i] = F_tire_v[i] * dx / np.sqrt(R**2 - dx**2)
-            # On flat bottom: no horizontal component
+                    F_h[i] = -F_tire_v[i] * dx / np.sqrt(R**2 - dx**2)
 
     return F_h
 
