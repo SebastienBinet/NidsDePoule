@@ -113,7 +113,9 @@ class QuarterCarModel:
         return {
             "t": t_eval,
             "z_s": z_s,
+            "z_s_dot": z_s_dot,
             "z_u": z_u,
+            "z_u_dot": z_u_dot,
             "z_s_ddot": z_s_ddot,
             "z_r": z_r,
         }
@@ -204,6 +206,76 @@ def pothole_profile(depth_m, length_m, speed_mps, t_enter=0.0, wheel_radius=0.31
                 return 0.0
 
     return z_r
+
+
+def compute_forces(result, model):
+    """Compute tire and suspension forces from simulation result.
+
+    Returns dict with:
+        F_tire_v: vertical tire force (N, positive = pushing wheel up)
+        F_susp:   suspension force (N, positive = pushing body up)
+    """
+    F_tire_v = model.k_t * (result["z_u"] - result["z_r"])
+    if model.c_t != 0:
+        z_r_dot = np.gradient(result["z_r"], result["t"])
+        F_tire_v += model.c_t * (result["z_u_dot"] - z_r_dot)
+    F_susp = model.k_s * (result["z_s"] - result["z_u"]) + \
+             model.c_s * (result["z_s_dot"] - result["z_u_dot"])
+    return {"F_tire_v": F_tire_v, "F_susp": F_susp}
+
+
+def compute_horizontal_tire_force(F_tire_v, depth_m, length_m, speed_mps,
+                                  t_enter, wheel_radius, t_array):
+    """Compute horizontal force from wheel-pothole edge contact geometry.
+
+    When the wheel rolls over an edge, the reaction force has a horizontal
+    component: F_h = F_v × tan(contact_angle). The contact angle depends
+    on the wheel position on the circular arc over the edge.
+
+    Returns array of horizontal force (N, positive = forward / direction of travel).
+    """
+    R = wheel_radius
+    d = depth_m
+    L = length_m
+    v = speed_mps
+
+    if d >= R:
+        x_touch = R
+    else:
+        x_touch = np.sqrt(2 * R * d - d**2)
+    bridges = L < 2 * x_touch
+
+    F_h = np.zeros_like(F_tire_v)
+
+    for i, t in enumerate(t_array):
+        x = (t - t_enter) * v  # hub distance past entry edge
+
+        if x <= 0 or x >= L:
+            continue  # on flat road, no horizontal component
+
+        if bridges:
+            if x <= L / 2:
+                # Entry arc: contact angle θ where tan(θ) = x / √(R²-x²)
+                if x > 0 and x < R:
+                    F_h[i] = -F_tire_v[i] * x / np.sqrt(R**2 - x**2)
+            else:
+                # Exit arc (mirror)
+                dx = L - x
+                if dx > 0 and dx < R:
+                    F_h[i] = F_tire_v[i] * dx / np.sqrt(R**2 - dx**2)
+        else:
+            if x < x_touch:
+                # Entry arc
+                if x > 0:
+                    F_h[i] = -F_tire_v[i] * x / np.sqrt(R**2 - x**2)
+            elif x > L - x_touch:
+                # Exit arc
+                dx = L - x
+                if dx > 0:
+                    F_h[i] = F_tire_v[i] * dx / np.sqrt(R**2 - dx**2)
+            # On flat bottom: no horizontal component
+
+    return F_h
 
 
 def multi_pothole_profile(potholes, speed_mps):

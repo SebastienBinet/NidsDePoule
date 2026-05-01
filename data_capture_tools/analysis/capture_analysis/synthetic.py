@@ -10,7 +10,7 @@ Usage:
     session = generate_and_load("/tmp")  # returns dict like load_session()
 """
 
-SYNTHETIC_VERSION = "v020t"
+SYNTHETIC_VERSION = "v020w"
 print(f"capture_analysis.synthetic loaded — version {SYNTHETIC_VERSION}, 180s, 36 potholes, quarter-car physics")
 
 import json
@@ -216,22 +216,27 @@ def inject_pothole(accel_world, gyro_world, t_center_s, depth_m, length_m,
     gyro_world[idx_start:idx_end, 0] += dpulse * scale                          # Pitch
     gyro_world[idx_start:idx_end, 1] += dpulse * scale * 0.30                   # Roll
     gyro_world[idx_start:idx_end, 2] += dpulse * scale * 0.15 * lateral_sign    # Yaw
-    gyro_world[idx_start:idx_end, 0] += dpulse * scale                     # Pitch (around East)
-    gyro_world[idx_start:idx_end, 1] += dpulse * scale * 0.30              # Roll (around North)
-    gyro_world[idx_start:idx_end, 2] += dpulse * scale * 0.15 * lateral_sign  # Yaw
 
-    # Return position time-series for visualization
-    # Convert simulation positions to real time, aligned with the main timeline
-    z_s_pos = result["z_s"][sig_start:sig_end]  # sprung mass displacement (m)
-    z_u_pos = result["z_u"][sig_start:sig_end]  # unsprung mass displacement (m)
-    z_r_pos = result["z_r"][sig_start:sig_end]  # road profile (m)
-    t_real = np.arange(idx_start, idx_end) / fs  # real time for each sample
+    # Compute forces
+    from .vehicle_model import compute_forces, compute_horizontal_tire_force
+    forces = compute_forces(result, model)
+    F_tire_v = forces["F_tire_v"][sig_start:sig_end]
+    F_susp = forces["F_susp"][sig_start:sig_end]
+    F_tire_h = compute_horizontal_tire_force(
+        forces["F_tire_v"], depth_m, length_m, speed_mps,
+        t_enter_sim, 0.315, t_sim
+    )[sig_start:sig_end]
+
+    t_real = np.arange(idx_start, idx_end) / fs
 
     return {
         "t": t_real,
-        "z_s": z_s_pos,  # car body corner height (0 = road level)
-        "z_u": z_u_pos,  # wheel hub height
-        "z_r": z_r_pos,  # road profile (pothole shape)
+        "z_s": result["z_s"][sig_start:sig_end],
+        "z_u": result["z_u"][sig_start:sig_end],
+        "z_r": result["z_r"][sig_start:sig_end],
+        "F_tire_v": F_tire_v,
+        "F_tire_h": F_tire_h,
+        "F_susp": F_susp,
     }
 
 
@@ -254,7 +259,7 @@ def generate_route(duration_s, fs):
 
     events = []
 
-    # Scenario (180s total):
+    # Scenario (240s total):
     # 0-10s:    stopped (calibration)
     # 10-15s:   accelerate to 50 km/h
     # 15-66s:   cruise 50 km/h — easy potholes (30-63s)
@@ -264,7 +269,10 @@ def generate_route(duration_s, fs):
     # 80-116s:  cruise 50 km/h with brownian noise — hard potholes (80-113s)
     # 116-120s: phone tilts from vertical to 45°
     # 120-170s: cruise 50 km/h — tilted phone potholes (130-163s)
-    # 170-180s: braking to stop
+    # 170-175s: decelerate to 30 km/h
+    # 175-210s: cruise 30 km/h — slow speed potholes (180-213s)
+    # 210-215s: braking to stop
+    # 215-240s: stopped
     for i in range(n):
         ti = t[i]
         if ti < 10:
@@ -281,8 +289,14 @@ def generate_route(duration_s, fs):
             speed[i] = 13.9 * (ti - 75) / 5
         elif ti < 170:
             speed[i] = 13.9
+        elif ti < 175:
+            speed[i] = 13.9 - (13.9 - 8.33) * (ti - 170) / 5  # decel to 30 km/h
+        elif ti < 210:
+            speed[i] = 8.33  # 30 km/h
+        elif ti < 215:
+            speed[i] = 8.33 * max(0, 1 - (ti - 210) / 5)
         else:
-            speed[i] = 13.9 * max(0, 1 - (ti - 170) / 5)
+            speed[i] = 0
 
     # Heading: 90° right turn between 76-80s
     for i in range(n):
@@ -343,6 +357,19 @@ def generate_route(duration_s, fs):
         (157.0, 0.10, 0.80, "severe_long_tilt"),
         (160.0, 0.12, 0.50, "very_severe_tilt"),
         (163.0, 0.02, 0.15, "minor_crack_tilt"),
+        # Phase 4: Same potholes at 30 km/h (slow speed, 180-213s)
+        (180.0, 0.03, 0.20, "shallow_short_slow"),
+        (183.0, 0.03, 0.40, "shallow_medium_slow"),
+        (186.0, 0.03, 0.80, "shallow_long_slow"),
+        (189.0, 0.05, 0.20, "moderate_short_slow"),
+        (192.0, 0.05, 0.40, "moderate_medium_slow"),
+        (195.0, 0.05, 0.80, "moderate_long_slow"),
+        (198.0, 0.08, 0.30, "deep_short_slow"),
+        (201.0, 0.08, 0.60, "deep_medium_slow"),
+        (204.0, 0.10, 0.40, "severe_short_slow"),
+        (207.0, 0.10, 0.80, "severe_long_slow"),
+        (210.0, 0.12, 0.50, "very_severe_slow"),
+        (213.0, 0.02, 0.15, "minor_crack_slow"),
     ]
 
     pothole_times = [(t, depth, length, label) for t, depth, length, label in pothole_defs]
@@ -358,7 +385,9 @@ def generate_phone_tilt(t, fs):
 
     0-116s: vertical (0 rad tilt)
     116-120s: gradual tilt from 0 to 45° forward
-    120-180s: 45° forward tilt
+    120-170s: 45° forward tilt
+    170-175s: gradual tilt back from 45° to 0° (vertical again for slow phase)
+    175-240s: vertical (0 rad tilt)
     """
     n = len(t)
     tilt = np.zeros(n)
@@ -369,8 +398,13 @@ def generate_phone_tilt(t, fs):
         elif ti < 120:
             frac = (ti - 116) / 4
             tilt[i] = np.deg2rad(45) * (3 * frac**2 - 2 * frac**3)
-        else:
+        elif ti < 170:
             tilt[i] = np.deg2rad(45)
+        elif ti < 175:
+            frac = (ti - 170) / 5
+            tilt[i] = np.deg2rad(45) * (1 - (3 * frac**2 - 2 * frac**3))
+        else:
+            tilt[i] = 0
     return tilt
 
 
@@ -439,7 +473,7 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
         Path to the created session directory.
     """
     rng = np.random.default_rng(seed)
-    duration_s = 180
+    duration_s = 240
     session_id = f"synthetic_{scenario}"
 
     print(f"Generating synthetic session: {session_id} ({duration_s}s)")
@@ -484,7 +518,9 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
         (66, 80, "white", 0.05, 0.002),       # braking/stopped/turning
         (80, 120, "brownian", 0.50, 0.025),   # degraded road + hard potholes
         (120, 170, "white", 0.15, 0.008),     # tilted phone potholes
-        (170, 180, "white", 0.05, 0.002),     # braking to stop
+        (170, 175, "white", 0.08, 0.004),     # deceleration
+        (175, 215, "white", 0.10, 0.005),     # slow cruise + slow potholes
+        (215, 240, "white", 0.02, 0.001),     # stopped
     ]
 
     for t_start, t_end, ntype, rms_a, rms_g in noise_segments:
@@ -505,9 +541,12 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
     contact_timelines = []
     # Collect position data for visualization: z_s (body), z_u (hub), z_r (road)
     # Stored as arrays spanning the full session (0 where no pothole)
-    positions_z_s = np.zeros(n_accel)  # car body corner displacement
-    positions_z_u = np.zeros(n_accel)  # wheel hub displacement
-    positions_z_r = np.zeros(n_accel)  # road profile
+    positions_z_s = np.zeros(n_accel)
+    positions_z_u = np.zeros(n_accel)
+    positions_z_r = np.zeros(n_accel)
+    positions_F_tire_v = np.zeros(n_accel)
+    positions_F_tire_h = np.zeros(n_accel)
+    positions_F_susp = np.zeros(n_accel)
     for pt_time, depth, length, label in pothole_times:
         pt_idx = min(int(pt_time * ACCEL_HZ), n_accel - 1)
         pt_speed = speed[pt_idx]
@@ -521,6 +560,9 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
                 positions_z_s[i0:i1] += pos_data["z_s"]
                 positions_z_u[i0:i1] += pos_data["z_u"]
                 positions_z_r[i0:i1] += pos_data["z_r"]
+                positions_F_tire_v[i0:i1] += pos_data["F_tire_v"]
+                positions_F_tire_h[i0:i1] += pos_data["F_tire_h"]
+                positions_F_susp[i0:i1] += pos_data["F_susp"]
         ct = compute_contact_timeline(depth, length, pt_speed, wheel_radius=0.315, t_entry=pt_time)
         ct["label"] = label
         ct["depth_m"] = depth
@@ -662,10 +704,11 @@ def generate_synthetic_session(output_dir, scenario="full_test", seed=42):
     # Quarter-car positions (for drill-down visualization)
     write_csv(
         f"positions_{session_id}.csv",
-        "timestamp_ns,z_s_m,z_u_m,z_r_m",
+        "timestamp_ns,z_s_m,z_u_m,z_r_m,F_tire_v_N,F_tire_h_N,F_susp_N",
         lambda f: np.savetxt(f, np.column_stack([
-            ts_accel_ns, positions_z_s, positions_z_u, positions_z_r
-        ]), fmt="%d,%.6f,%.6f,%.6f"),
+            ts_accel_ns, positions_z_s, positions_z_u, positions_z_r,
+            positions_F_tire_v, positions_F_tire_h, positions_F_susp,
+        ]), fmt="%d,%.6f,%.6f,%.6f,%.2f,%.2f,%.2f"),
     )
     print(f"    positions: {n_accel:,} samples")
 
