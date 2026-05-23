@@ -1,98 +1,41 @@
-# CLAUDE.md
+# Transit-3D
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Visualisation 3D espace-temps du transit. Plan horizontal = géographie (lat/lon),
+axe vertical = temps (t=0 en bas, vers le haut = futur). But: faire émerger les options
+de transfert et leurs probabilités que les cartes plates cachent.
 
-## Project Overview
+Détail et raisons: voir `DECISIONS.md` (à lire avant toute décision d'architecture).
+Langue de travail: français.
 
-NidsDePoule is a crowdsourced pothole detection system. An Android app detects potholes via accelerometer + GPS while driving, reports them to a FastAPI server, which clusters and maps them on a web dashboard.
+## Rôles
 
-## Commands
+- Le porteur est architecte / product owner. Il **n'écrit ni ne révise de code**.
+- Claude écrit **100 % du code et des tests**.
 
-### Server (Python/FastAPI)
+## Invariants à ne jamais faire dériver
 
-```bash
-cd server
-pip install -r requirements.txt
-uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
+- **Contrat de données** simulateur→visualizer: frames = état complet auto-suffisant + timestamp.
+  Le simulateur calcule les trajectoires; le simulateur est l'autorité du temps; le visualizer
+  ne fait que dessiner et n'extrapole jamais au-delà des frames reçues.
+- **Incertitude**: percentiles `p10/p50/p90` tranchés par temps (alignés par échantillon).
+  Position en `progress_m` le long du tracé. Pas de Monte Carlo / densité volumétrique.
+- **Invariants de trajectoire**: temps strictement croissant; progress monotone non-décroissant;
+  p10 ≤ p50 ≤ p90; percentiles égaux à t=0.
+- **Frontière swappable**: seul `web/js/renderer.js` importe Three.js. Player, interpolation et
+  logique de données restent Three.js-free (testables sous Node).
+- **Coordonnées**: géométrie des lignes en lat/lon. Une seule transformation lat/lon→plan, dans le
+  visualizer, à la dernière étape.
+- **Déterminisme**: le RNG du simulateur est toujours seedé.
 
-# Run all tests
-python -m pytest tests/ -v
+## Tests
 
-# Run a single test
-python -m pytest tests/test_api.py::test_submit_single_hit -v
+- Niveaux actifs: 1 (unitaires Python), 2 (validation schéma/contrat), 3 (logique JS headless/Node),
+  5 (tests de récit). Niveau 4 = smoke test navigateur seulement.
+- CI roule les tests à chaque push. Tout test important doit tourner sans navigateur ni GPU.
 
-# Run smoke tests against live server
-SMOKE_TEST_URL=https://nidsdepoule.onrender.com python -m pytest tests/test_smoke.py -v
-```
+## Pratiques
 
-### Android (Kotlin/Gradle)
-
-```bash
-cd android
-./gradlew assembleDebug                    # Build debug APK
-./gradlew testDebugUnitTest                # Run unit tests
-./build-and-install.sh install             # Build + install via USB
-./build-and-install.sh server URL install  # Set server URL + install
-```
-
-## Architecture
-
-### Data Flow
-
-```
-Android App → POST /api/v1/hits (JSON) → HitProcessor → AsyncioHitQueue → StorageConsumer → HitStorage backend
-                                                                                                    ↓
-Dashboard (index.html) ← GET /api/v1/potholes (GeoJSON) ← clustering.py ← storage.read_all_hits()
-```
-
-### Server Structure (`server/server/`)
-
-- **`main.py`** — FastAPI app, lifespan management, singleton wiring (`get_processor()`, `get_stats()`, `get_storage()`, `get_config()`)
-- **`core/processor.py`** — HitProcessor: validates messages, enqueues hits, runs background storage consumer
-- **`core/models.py`** — Immutable dataclasses: `ClientMessageData`, `ServerHitRecordData`, `HitData`, `LocationData`, `HitPatternData`
-- **`core/stats.py`** — Thread-safe `ServerStats` with device tracking and active window
-- **`core/clustering.py`** — Greedy spatial clustering (15m radius, haversine distance) → GeoJSON output
-- **`api/hits.py`** — `POST /api/v1/hits` (single hit, batch, heartbeat)
-- **`api/potholes.py`** — `GET /api/v1/potholes`, `GET /api/v1/hits/recent`, `DELETE /api/v1/hits`
-- **`api/monitoring.py`** — `/health`, `/stats`, `/devices/active`, `/debug/storage`, `/config`
-- **`storage/base.py`** — `HitStorage` protocol: `store()`, `store_batch()`, `read_all_hits()`, `delete_hits()`
-- **`storage/`** — Implementations: `file_storage.py` (default dev), `firestore_storage.py` (prod), `firebase_storage.py`, `s3_storage.py`
-- **`queue/base.py`** — `HitQueue` protocol; `asyncio_queue.py` implementation
-- **`web/index.html`** — Dashboard served at `/`, uses `{{VERSION_LABEL}}` interpolation
-
-### Android Structure (`android/app/src/main/java/fr/nidsdepoule/app/`)
-
-- **`MainViewModel.kt`** — Core logic: accelerometer buffer, GPS interpolation, hit building, report sending
-- **`reporting/HitReporter.kt`** — HTTP transport, heartbeat timer (500ms), pothole fetching, batch/realtime modes
-- **`detection/`** — `ThresholdHitDetector`, `HitDetectionStrategy`, `ReportSource` enum (`ALMOST`/`HIT`)
-- **`ui/MainScreen.kt`** — Jetpack Compose UI with AYOYE (hit) and "iiiiiiiii !!!" (almost) buttons
-- **`reporting/HitReportData.kt`** — JSON serialization for server protocol
-
-### Client-Server Protocol (JSON over HTTP)
-
-Hit source values: `"hit"` (AYOYE button, severity 3) and `"almost"` (iiiiiiiii button, severity 2).
-
-Messages: single hit (`{hit: {...}}`), batch (`{batch: {hits: [...]}}`), heartbeat (`{heartbeat: {...}}`). All include `protocol_version`, `device_id`, `app_version`, `source`.
-
-### Configuration
-
-`server/config.yaml` with env var overrides: `NIDS_<SECTION>_<KEY>` (e.g. `NIDS_STORAGE_BACKEND=firestore`). Env vars always win.
-
-Production deployment on Render.com (`render.yaml`), using Firestore backend.
-
-## Version Bumping
-
-When deploying a new version, update **both**:
-1. `VERSION_LABEL` (root file)
-2. `server/server/main.py` → `_VERSION_LABEL`
-
-These must match. The version appears on the dashboard and in `/api/v1/debug/storage`.
-
-## Testing
-
-Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. Key fixtures in `server/tests/conftest.py`:
-- `client` — httpx `AsyncClient` with ASGI transport
-- `spy_storage` — `SpyHitStorage` that records all `store()` calls and can simulate failures via `fail_next = True`
-- `_init_server` — auto-fixture that wires up server singletons with temp storage per test
-
-Smoke tests (`test_smoke.py`) hit a live server and are skipped unless `SMOKE_TEST_URL` is set.
+- Ne rien assumer; vérifier. Ne pas cacher la confusion. Mettre en évidence les compromis.
+- Code minimal qui résout le problème énoncé; pas de fonctionnalités spéculatives.
+- En modifiant, ne changer que le nécessaire; corriger seulement les erreurs nouvellement introduites.
+- Avant d'écrire/modifier du code: définir le critère de succès, puis boucler jusqu'à ce qu'il soit rempli.
